@@ -15,7 +15,7 @@
          wait_for_span_test/1, build_span_tree_test/1,
          get_spans_by_name_test/1, reset_test/1]).
 
--define(NUMBER_OF_REPETITIONS, 3).
+-define(NUMBER_OF_REPETITIONS, 100).
 -define(TABLE, '$spans_table').
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -50,9 +50,7 @@ init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(proper, Config) ->
-    ct:log("spans_table = ~p~n", [ets:tab2list(?TABLE)]),
     opentelemetry_testing:reset(),
-    ct:log("spans_table = ~p~n", [ets:tab2list(?TABLE)]),
     Config;
 end_per_group(_Group, Config) ->
     Config.
@@ -130,7 +128,6 @@ build_span_tree_without_conversion_property() ->
             begin
                 {RootSpanId, ExpectedSpanTree} = generate_span_tree(GeneratedSpanTree),
                 SpanTree = opentelemetry_testing:build_span_tree(RootSpanId),
-                ct:log("SpanTree: ~p~n", [SpanTree]),
                 ?assertEqual(ExpectedSpanTree, remove_end_time_recursively(SpanTree)),
                 true
             end).
@@ -141,7 +138,6 @@ build_span_tree_with_conversion_property() ->
             begin
                 {RootSpanId, ExpectedSpanTree} = generate_span_tree(GeneratedSpanTree),
                 SpanTree = opentelemetry_testing:build_span_tree(RootSpanId, fun remove_end_time/1),
-                ct:log("SpanTree: ~p~n", [SpanTree]),
                 ?assertEqual(ExpectedSpanTree, SpanTree),
                 true
             end).
@@ -170,7 +166,6 @@ span_gen() ->
 
 generate_span_tree(GeneratedSpanTree) ->
     ExpectedSpanTree = span_tree(GeneratedSpanTree),
-    ct:log("ExpectedSpanTree: ~p~n", [ExpectedSpanTree]),
     {#span{span_id = RootSpanId}, _Children} = ExpectedSpanTree,
     ?assertEqual(ok, opentelemetry_testing:wait_for_span(RootSpanId, 500)),
     {RootSpanId, ExpectedSpanTree}.
@@ -180,7 +175,6 @@ span_tree({Span, Children}) ->
                #{},
                fun(SpanCtx) ->
                    Branches = [span_tree(C) || C <- Children],
-                   % ct:log("length(Branches) == ~p", [length(Branches)]),
                    SpanId = SpanCtx#span_ctx.span_id,
                    {hd(ets:lookup(otel_span_table, SpanId)), Branches}
                end).
