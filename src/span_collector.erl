@@ -26,10 +26,16 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 ensure_started() ->
-    gen_server:start({local, ?MODULE}, ?MODULE, no_args, []),
-    %% if gen_server:start/4 returns an 'already_started' error,
-    %% ensure the process (and ETS table) is already initialized.
-    gen_server:call(?MODULE, wait_for_init).
+    case gen_server:start({local, ?MODULE}, ?MODULE, no_args, []) of
+        {ok, _Pid} -> ok;
+        {error, {already_started, _Pid}} ->
+            %% ensure the process (and ETS table) is already initialized
+            %% and otel_exporter_pid is configured properly.
+            gen_server:call(?MODULE, wait_for_init);
+        Error ->
+            ?LOG_ERROR("failed to start span_collector: ~p", [Error]),
+            {error, failed_to_start_span_collector}
+    end.
 
 reset() ->
     gen_server:call(?MODULE, reset).
@@ -91,6 +97,7 @@ handle_call(reset, _From, State) ->
     ets:delete_all_objects(?TABLE),
     {reply, ok, State};
 handle_call(wait_for_init, _From, State) ->
+    configure_opentelemetry(),
     {reply, ok, State};
 handle_call(Request, _From, State) ->
     ?LOG_ERROR("unexpected call request: ~p, state: ~p", [Request, State]),
