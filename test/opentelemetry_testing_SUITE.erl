@@ -1,6 +1,8 @@
 -module(opentelemetry_testing_SUITE).
 -behavior(ct_suite).
 
+-include_lib("stdlib/include/assert.hrl").
+
 -compile([export_all, nowarn_export_all]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -8,7 +10,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 all() ->
-    [dummy_test].
+    [ensure_started_test].
 
 init_per_suite(Config) ->
     opentelemetry_testing:ensure_started(),
@@ -21,4 +23,8 @@ end_per_suite(Config) ->
 %% test cases
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-dummy_test(_Config) -> ok.
+ensure_started_test(_Config) ->
+    %% basic check if opentelemetry_testing:ensure_started/0
+    %% interface is idempotent
+    ?assertEqual(ok, opentelemetry_testing:ensure_started()),
+    ?assertEqual(ok, opentelemetry_testing:ensure_started()).
