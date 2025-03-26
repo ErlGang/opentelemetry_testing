@@ -12,8 +12,9 @@
 
 -export([build_span_tree_without_conversion_prop_test/1,
          build_span_tree_with_conversion_prop_test/1,
-         wait_for_span_test/1, build_span_tree_test/1,
-         get_spans_by_name_test/1, reset_test/1]).
+         ensure_started_test/1, build_span_tree_test/1,
+         get_spans_by_name_test/1, wait_for_span_test/1,
+         reset_test/1]).
 
 -define(NUMBER_OF_REPETITIONS, 100).
 -define(TABLE, '$spans_table').
@@ -28,7 +29,8 @@ all() ->
 
 groups() ->
     [{basic, [],
-      [reset_test,
+      [ensure_started_test,
+       reset_test,
        wait_for_span_test,
        get_spans_by_name_test,
        build_span_tree_test]},
@@ -44,13 +46,13 @@ end_per_suite(Config) ->
     Config.
 
 init_per_group(proper, Config) ->
-    opentelemetry_testing:reset(),
+    span_collector:reset(),
     Config;
 init_per_group(_Group, Config) ->
     Config.
 
 end_per_group(proper, Config) ->
-    opentelemetry_testing:reset(),
+    span_collector:reset(),
     Config;
 end_per_group(_Group, Config) ->
     Config.
@@ -63,33 +65,33 @@ reset_test(_Config) ->
     span_tree({<<"some_span">>,[]}),
     SpanTable1 = ets:tab2list(?TABLE),
     ?assert(length(SpanTable1) > 0),
-    opentelemetry_testing:reset(),
+    span_collector:reset(),
     SpanTable2 = ets:tab2list(?TABLE),
     ?assertEqual(0, length(SpanTable2)).
 
 wait_for_span_test(_Config) ->
     Timeout = 300,
     {#span{span_id = RootSpanId}, []} = span_tree({<<"some_span">>, []}),
-    ?assertEqual(ok, opentelemetry_testing:wait_for_span(RootSpanId, Timeout)),
-    opentelemetry_testing:reset(),
-    {Time, Value} = timer:tc(opentelemetry_testing, wait_for_span,
+    ?assertEqual(ok, span_collector:wait_for_span(RootSpanId, Timeout)),
+    span_collector:reset(),
+    {Time, Value} = timer:tc(span_collector, wait_for_span,
                              [RootSpanId, Timeout], millisecond),
     ?assertEqual({error, timeout}, Value),
     ?assert(Time > Timeout).
 
 get_spans_by_name_test(_Config) ->
     SpanName = <<"some_span">>,
-    opentelemetry_testing:reset(),
-    ?assertEqual({error,not_found}, opentelemetry_testing:get_span_id_by_name(SpanName)),
-    ?assertEqual([], opentelemetry_testing:get_spans_by_name(SpanName)),
+    span_collector:reset(),
+    ?assertEqual({error,not_found}, span_collector:get_span_id_by_name(SpanName)),
+    ?assertEqual([], span_collector:get_spans_by_name(SpanName)),
     {#span{span_id = RootSpanId} = ExpectedSpan1, []} = span_tree({SpanName, []}),
-    ?assertEqual({ok, RootSpanId}, opentelemetry_testing:get_span_id_by_name(SpanName)),
-    [Span] = opentelemetry_testing:get_spans_by_name(SpanName),
+    ?assertEqual({ok, RootSpanId}, span_collector:get_span_id_by_name(SpanName)),
+    [Span] = span_collector:get_spans_by_name(SpanName),
     ?assertEqual(ExpectedSpan1,  remove_end_time(Span)),
     {#span{} = ExpectedSpan2, []} = span_tree({SpanName, []}),
     ?assertEqual({error,name_is_not_unique},
-                 opentelemetry_testing:get_span_id_by_name(SpanName)),
-    Spans = opentelemetry_testing:get_spans_by_name(SpanName),
+                 span_collector:get_span_id_by_name(SpanName)),
+    Spans = span_collector:get_spans_by_name(SpanName),
     ?assertEqual(lists:sort([ExpectedSpan1, ExpectedSpan2]),
                  lists:sort([remove_end_time(S) || S <- Spans])).
 
@@ -101,12 +103,17 @@ build_span_tree_test(_Config) ->
                         {<<"another_span">>, []}
                     ]},
     {RootSpanId, ExpectedSpanTree} = generate_span_tree(SpanTreeInput),
-    SpanTree1 = opentelemetry_testing:build_span_tree(RootSpanId),
+    SpanTree1 = span_collector:build_span_tree(RootSpanId),
     ?assertEqual(ExpectedSpanTree, remove_end_time_recursively(SpanTree1)),
-    SpanTree2 = opentelemetry_testing:build_span_tree(RootSpanId, fun remove_end_time/1),
+    SpanTree2 = span_collector:build_span_tree(RootSpanId, fun remove_end_time/1),
     ?assertEqual(ExpectedSpanTree, SpanTree2),
-    SpanTree3 = opentelemetry_testing:build_span_tree(RootSpanId, fun(X) -> X end),
+    SpanTree3 = span_collector:build_span_tree(RootSpanId, fun(X) -> X end),
     ?assertEqual(SpanTree1, SpanTree3).
+
+ensure_started_test(_Config) ->
+    %% basic check if span_collector:ensure_started/0 interface is idempotent
+    ?assertEqual(ok, span_collector:ensure_started()),
+    ?assertEqual(ok, span_collector:ensure_started()).
 
 build_span_tree_without_conversion_prop_test(_Config) ->
     PropTest = build_span_tree_without_conversion_property(),
@@ -127,7 +134,7 @@ build_span_tree_without_conversion_property() ->
             span_tree_gen(3),
             begin
                 {RootSpanId, ExpectedSpanTree} = generate_span_tree(GeneratedSpanTree),
-                SpanTree = opentelemetry_testing:build_span_tree(RootSpanId),
+                SpanTree = span_collector:build_span_tree(RootSpanId),
                 ?assertEqual(ExpectedSpanTree, remove_end_time_recursively(SpanTree)),
                 true
             end).
@@ -137,7 +144,7 @@ build_span_tree_with_conversion_property() ->
             span_tree_gen(3),
             begin
                 {RootSpanId, ExpectedSpanTree} = generate_span_tree(GeneratedSpanTree),
-                SpanTree = opentelemetry_testing:build_span_tree(RootSpanId, fun remove_end_time/1),
+                SpanTree = span_collector:build_span_tree(RootSpanId, fun remove_end_time/1),
                 ?assertEqual(ExpectedSpanTree, SpanTree),
                 true
             end).
@@ -167,7 +174,7 @@ span_gen() ->
 generate_span_tree(GeneratedSpanTree) ->
     ExpectedSpanTree = span_tree(GeneratedSpanTree),
     {#span{span_id = RootSpanId}, _Children} = ExpectedSpanTree,
-    ?assertEqual(ok, opentelemetry_testing:wait_for_span(RootSpanId, 500)),
+    ?assertEqual(ok, span_collector:wait_for_span(RootSpanId, 500)),
     {RootSpanId, ExpectedSpanTree}.
 
 span_tree({Span, Children}) ->
