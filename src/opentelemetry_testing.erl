@@ -21,6 +21,7 @@ ensure_started() ->
     application:set_env(opentelemetry, traces_exporter, none),
     application:set_env(opentelemetry, processors, [{otel_simple_processor, #{}}]),
     {ok, _} = application:ensure_all_started(opentelemetry),
+    ok = span_convertor:init(),
     ok = span_collector:ensure_started().
 
 reset() ->
