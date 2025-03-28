@@ -148,6 +148,7 @@ build_span_tree_with_conversion_property() ->
                 ?assertEqual(ExpectedSpanTree, SpanTree),
                 true
             end).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% generators
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
