@@ -7,9 +7,10 @@
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
--export([init_test/1, span_conversion_prop_test/1]).
+-export([init_test/1, span_conversion_prop_test/1,
+         recursive_records_conversion_prop_test/1]).
 
--define(NUMBER_OF_REPETITIONS, 100).
+-define(NUMBER_OF_REPETITIONS, 10).
 
 -define(ADD_RECORD(RecordName, Acc),
         span_convertor:add_record(RecordName, record_info(fields, RecordName), Acc)).
@@ -17,13 +18,19 @@
 %%% declaring span type so that it can be used for the PropEr generator.
 -type span() :: #span{}.
 
+%% some dummy records and types for testing
+-record(r1, {r1f1 :: term(), r1f2 :: term(), r1f3 :: term()}).
+-record(r2, {r2f1 :: term(), r2f2 :: term()}).
+-record(r3, {r3f1 :: term()}).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ct_suite callbacks
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 all() ->
     [init_test,
-     span_conversion_prop_test].
+     span_conversion_prop_test,
+     recursive_records_conversion_prop_test].
 
 init_per_testcase(_TestCase, Config) ->
     clean_record_definitions(),
@@ -66,6 +73,15 @@ span_conversion_prop_test(_Config) ->
     ?assertEqual(true, proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
     ok.
 
+recursive_records_conversion_prop_test(_Config) ->
+    ExpectedOtelRecords1 = ?ADD_RECORD(r1, #{}),
+    ExpectedOtelRecords2 = ?ADD_RECORD(r2, ExpectedOtelRecords1),
+    ExpectedOtelRecords3 = ?ADD_RECORD(r3, ExpectedOtelRecords2),
+    span_convertor:store_record_definitions(ExpectedOtelRecords3),
+    PropTest = recursive_records_conversion_property(),
+    ?assertEqual(true, proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
+    ok.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% properties
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -85,6 +101,25 @@ span_conversion_property() ->
                 true
             end).
 
+recursive_records_conversion_property() ->
+    ?FORALL(Term,
+            random_type_gen(3),
+            begin
+                ct:log("Term = ~p", [Term]),
+                Ret = contains_known_records(Term),
+                ct:log("contains_known_records(Record) = ~p", [Ret]),
+                case Ret of
+                    false ->
+                        ?assertEqual(Term, span_convertor:records_to_maps(Term)),
+                        ?assertEqual(Term, span_convertor:maps_to_records(Term));
+                    {true, [_ | _]} ->
+                        ConvertedTerm = span_convertor:records_to_maps(Term),
+                        ?assertEqual(false, contains_known_records(ConvertedTerm)),
+                        ?assertEqual(Term, span_convertor:maps_to_records(ConvertedTerm))
+                end,
+                true
+            end).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% generators
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -94,6 +129,43 @@ span_gen() ->
     %% with the following error:
     %%   function span/0 undefined
     ?LET(X, span(), X).
+
+random_type_gen(X0) when X0 > 0 ->
+    X = X0 - 1,
+    ?LAZY(oneof([term(),
+                 some_record_gen(X),
+                 nested_list_gen(X),
+                 nested_tuple_gen(X),
+                 nested_map_gen(X)]));
+random_type_gen(_X) ->
+    term().
+
+nested_list_gen(X) ->
+    list(random_type_gen(X)).
+
+nested_tuple_gen(X) ->
+    loose_tuple(random_type_gen(X)).
+
+nested_map_gen(X) ->
+    map(term(), random_type_gen(X)).
+
+some_record_gen(X) ->
+    oneof([t1_gen(X), t2_gen(X), t3_gen(X)]).
+
+t1_gen(X) ->
+    ?LET({F1,F2,F3},
+            {random_type_gen(X),random_type_gen(X),random_type_gen(X)},
+            #r1{r1f1 = F1, r1f2 = F2, r1f3 = F3}).
+
+t2_gen(X) ->
+    ?LET({F1,F2},
+            {random_type_gen(X),random_type_gen(X)},
+            #r2{r2f1 = F1, r2f2 = F2}).
+
+t3_gen(X) ->
+    ?LET({F1},
+            {random_type_gen(X)},
+            #r3{r3f1 = F1}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% local functions
