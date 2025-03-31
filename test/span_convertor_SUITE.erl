@@ -7,7 +7,8 @@
 
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
--export([init_test/1, span_conversion_prop_test/1,
+-export([init_test/1,
+         span_conversion_prop_test/1,
          recursive_records_conversion_prop_test/1]).
 
 -define(NUMBER_OF_REPETITIONS, 100).
@@ -27,10 +28,12 @@
 %% ct_suite callbacks
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+
 all() ->
     [init_test,
      span_conversion_prop_test,
      recursive_records_conversion_prop_test].
+
 
 init_per_testcase(recursive_records_conversion_prop_test, Config) ->
     %% adding a code path is required to use safe type generators
@@ -43,13 +46,16 @@ init_per_testcase(_TestCase, Config) ->
     clean_record_definitions(),
     Config.
 
+
 end_per_testcase(_TestCase, Config) ->
     clean_record_definitions(),
     Config.
 
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% test cases
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 
 init_test(_Config) ->
     %% ensure that record definitions from otel_span.hrl are added correctly.
@@ -70,15 +76,17 @@ init_test(_Config) ->
     %% record definitions if they differ from the definitions extracted
     %% from OTEL modules.
     span_convertor:store_record_definitions(ExpectedOtelRecords4),
-    ?assertError({error,inconsistent_record_definition_map,
-                  ExpectedOtelRecords4, OtelRecords},
+    ?assertError({error, inconsistent_record_definition_map,
+                         ExpectedOtelRecords4, OtelRecords},
                  span_convertor:init()).
+
 
 span_conversion_prop_test(_Config) ->
     ?assertEqual(ok, span_convertor:init()),
     PropTest = span_conversion_property(),
     ?assertEqual(true, proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
     ok.
+
 
 recursive_records_conversion_prop_test(_Config) ->
     ExpectedOtelRecords1 = ?ADD_RECORD(r1, #{}),
@@ -89,9 +97,11 @@ recursive_records_conversion_prop_test(_Config) ->
     ?assertEqual(true, proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
     ok.
 
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% properties
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 
 span_conversion_property() ->
     ?FORALL(Record,
@@ -103,6 +113,7 @@ span_conversion_property() ->
                 ?assertEqual(Record, span_convertor:maps_to_records(Record)),
                 true
             end).
+
 
 recursive_records_conversion_property() ->
     ?FORALL(Term,
@@ -122,15 +133,18 @@ recursive_records_conversion_property() ->
                 true
             end).
 
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% generators
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 
 span_gen() ->
     %% without wrapping into a ?LET macro compilation fails
     %% with the following error:
     %%   function span/0 undefined
     ?LET(X, span(), X).
+
 
 random_type_gen(X0) when X0 > 0 ->
     X = X0 - 1,
@@ -142,41 +156,51 @@ random_type_gen(X0) when X0 > 0 ->
 random_type_gen(_X) ->
     ct_proper_ext:safe_any().
 
+
 nested_list_gen(X) ->
     list(random_type_gen(X)).
+
 
 nested_tuple_gen(X) ->
     loose_tuple(random_type_gen(X)).
 
+
 nested_map_gen(X) ->
     map(ct_proper_ext:safe_any(), random_type_gen(X)).
+
 
 some_record_gen(X) ->
     oneof([t1_gen(X), t2_gen(X), t3_gen(X)]).
 
+
 t1_gen(X) ->
-    ?LET({F1,F2,F3},
-            {random_type_gen(X),random_type_gen(X),random_type_gen(X)},
-            #r1{r1f1 = F1, r1f2 = F2, r1f3 = F3}).
+    ?LET({F1, F2, F3},
+         {random_type_gen(X), random_type_gen(X), random_type_gen(X)},
+         #r1{r1f1 = F1, r1f2 = F2, r1f3 = F3}).
+
 
 t2_gen(X) ->
-    ?LET({F1,F2},
-            {random_type_gen(X),random_type_gen(X)},
-            #r2{r2f1 = F1, r2f2 = F2}).
+    ?LET({F1, F2},
+         {random_type_gen(X), random_type_gen(X)},
+         #r2{r2f1 = F1, r2f2 = F2}).
+
 
 t3_gen(X) ->
     ?LET({F1},
-            {random_type_gen(X)},
-            #r3{r3f1 = F1}).
+         {random_type_gen(X)},
+         #r3{r3f1 = F1}).
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% local functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+
 clean_record_definitions() ->
     %% 'undefined' is the special value used to erase previously stored
     %% record definitions.
     span_convertor:store_record_definitions(undefined).
+
 
 contains_known_records(Term) ->
     OtelRecords = span_convertor:get_record_definitions(),
@@ -187,17 +211,19 @@ contains_known_records(Term) ->
         FlatList -> {true, lists:uniq(FlatList)}
     end.
 
+
 contains_known_records(List, KnownRecords) when is_list(List) ->
-    [contains_known_records(Elem, KnownRecords) || Elem <- List];
+    [ contains_known_records(Elem, KnownRecords) || Elem <- List ];
 contains_known_records(Map, KnownRecords) when is_map(Map) ->
-    [contains_known_records(Value, KnownRecords) || _Key := Value <- Map];
+    [ contains_known_records(Value, KnownRecords) || _Key := Value <- Map ];
 contains_known_records(Tuple, KnownRecords) when is_tuple(Tuple) ->
     List = tuple_to_list(Tuple),
-    case [Record || Record <- KnownRecords, is_known_record(Tuple, Record)] of
+    case [ Record || Record <- KnownRecords, is_known_record(Tuple, Record) ] of
         [KnownRecord] -> [KnownRecord | contains_known_records(List, KnownRecords)];
         [] -> contains_known_records(List, KnownRecords)
     end;
 contains_known_records(_Term, _KnownRecords) -> [].
+
 
 is_known_record(Tuple, {RecordName, RecordSize}) ->
     is_record(Tuple, RecordName, RecordSize).
