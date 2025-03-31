@@ -10,7 +10,7 @@
 -export([init_test/1, span_conversion_prop_test/1,
          recursive_records_conversion_prop_test/1]).
 
--define(NUMBER_OF_REPETITIONS, 10).
+-define(NUMBER_OF_REPETITIONS, 100).
 
 -define(ADD_RECORD(RecordName, Acc),
         span_convertor:add_record(RecordName, record_info(fields, RecordName), Acc)).
@@ -32,6 +32,13 @@ all() ->
      span_conversion_prop_test,
      recursive_records_conversion_prop_test].
 
+init_per_testcase(recursive_records_conversion_prop_test, Config) ->
+    %% adding a code path is required to use safe type generators
+    %% from the ct_proper_ext module and avoid the "no more index
+    %% entries in atom_tab" crash during the test.
+    code:add_path(code:lib_dir(common_test) ++ "/proper_ext"),
+    clean_record_definitions(),
+    Config;
 init_per_testcase(_TestCase, Config) ->
     clean_record_definitions(),
     Config.
@@ -90,12 +97,8 @@ span_conversion_property() ->
     ?FORALL(Record,
             span_gen(),
             begin
-                ct:log("Record = ~p", [Record]),
-                Ret = contains_known_records(Record),
-                ct:log("contains_known_records(Record) = ~p", [Ret]),
-                ?assertMatch({true, [_ | _]}, Ret),
+                ?assertMatch({true, [_ | _]}, contains_known_records(Record)),
                 Map = span_convertor:records_to_maps(Record),
-                ct:log("Map = ~p", [Map]),
                 ?assertEqual(false, contains_known_records(Map)),
                 ?assertEqual(Record, span_convertor:maps_to_records(Record)),
                 true
@@ -103,16 +106,15 @@ span_conversion_property() ->
 
 recursive_records_conversion_property() ->
     ?FORALL(Term,
-            random_type_gen(3),
+            random_type_gen(4),
             begin
-                ct:log("Term = ~p", [Term]),
-                Ret = contains_known_records(Term),
-                ct:log("contains_known_records(Record) = ~p", [Ret]),
-                case Ret of
+                case contains_known_records(Term) of
                     false ->
+                        ct:log("contains_known_records(Term) == false"),
                         ?assertEqual(Term, span_convertor:records_to_maps(Term)),
                         ?assertEqual(Term, span_convertor:maps_to_records(Term));
                     {true, [_ | _]} ->
+                        ct:log("contains_known_records(Term) == true"),
                         ConvertedTerm = span_convertor:records_to_maps(Term),
                         ?assertEqual(false, contains_known_records(ConvertedTerm)),
                         ?assertEqual(Term, span_convertor:maps_to_records(ConvertedTerm))
@@ -132,13 +134,13 @@ span_gen() ->
 
 random_type_gen(X0) when X0 > 0 ->
     X = X0 - 1,
-    ?LAZY(oneof([term(),
+    ?LAZY(oneof([ct_proper_ext:safe_any(),
                  some_record_gen(X),
                  nested_list_gen(X),
                  nested_tuple_gen(X),
                  nested_map_gen(X)]));
 random_type_gen(_X) ->
-    term().
+    ct_proper_ext:safe_any().
 
 nested_list_gen(X) ->
     list(random_type_gen(X)).
@@ -147,7 +149,7 @@ nested_tuple_gen(X) ->
     loose_tuple(random_type_gen(X)).
 
 nested_map_gen(X) ->
-    map(term(), random_type_gen(X)).
+    map(ct_proper_ext:safe_any(), random_type_gen(X)).
 
 some_record_gen(X) ->
     oneof([t1_gen(X), t2_gen(X), t3_gen(X)]).
