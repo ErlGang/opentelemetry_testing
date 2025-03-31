@@ -6,15 +6,7 @@
 -define(FAILED_MATCH(Value, Pattern),
         ?FAILED_MATCH(#{value => Value, pattern => Pattern})).
 
--ifdef(TEST).
-
--define(MATCH_VALUE(Value, Pattern), match_value_and_log(Value, Pattern)).
-
--else.
-
 -define(MATCH_VALUE(Value, Pattern), match_value(Value, Pattern)).
-
--endif.
 
 -type value() :: term().
 -type pattern() :: term().
@@ -78,20 +70,9 @@ match(Term, Pattern) -> ?MATCH_VALUE(Term, Pattern).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
+-spec failure_map(map(), atom()) -> failure_map().
 failure_map(Map, Matcher) ->
-    maps:merge(#{reason => match_failed}, Map#{matcher => Matcher}).
-
-
--ifdef(TEST).
-
-
-match_value_and_log(Value, Pattern) ->
-    Ret = match_value(Value, Pattern),
-    ct:log("match_value(~p, ~p) == ~p", [Value, Pattern, Ret]),
-    Ret.
-
-
--endif.
+    Map#{matcher => Matcher, reason => match_failed}.
 
 
 -spec match_value(value(), pattern()) -> match_result().
@@ -129,23 +110,28 @@ match_map(Value, MapPattern) when is_map(Value) =/= true ->
     FailureMap = ?FAILED_MATCH(Value, MapPattern),
     {false, [FailureMap#{reason => not_a_map}]};
 match_map(Value, MapPattern) ->
-    Keys = maps:keys(MapPattern),
-    MatchKeyFn =
-        fun(Key, Acc) ->
-                match_map_key(Value, MapPattern, Key, Acc)
-        end,
-    case lists:foldl(MatchKeyFn, true, Keys) of
-        true ->
-            true;
-        {false, FailureStack} ->
-            {false, [?FAILED_MATCH(Value, MapPattern) | FailureStack]}
+    PatternKeys = maps:keys(MapPattern),
+    ValueKeys = maps:keys(Value),
+    case lists:sort(PatternKeys -- ValueKeys) of
+        [] ->
+            MatchKeyFn =
+                fun(Key, Acc) ->
+                        match_map_key(Value, MapPattern, Key, Acc)
+                end,
+            case lists:foldl(MatchKeyFn, true, PatternKeys) of
+                true ->
+                    true;
+                {false, FailureStack} ->
+                    {false, [?FAILED_MATCH(Value, MapPattern) | FailureStack]}
+            end;
+        MissingKeys ->
+            FailureMap = ?FAILED_MATCH(Value, MapPattern),
+
+            {false, [FailureMap#{reason => missing_keys, missing_keys => MissingKeys}]}
     end.
 
 
 -spec match_map_key(map(), map(), value(), match_result()) -> match_result().
-match_map_key(Value, _MapPattern, Key, true)
-  when is_map_key(Key, Value) =/= true ->
-    {false, [?FAILED_MATCH(#{reason => key_is_missing, key => Key})]};
 match_map_key(Value, MapPattern, Key, true) ->
     KeyValue = maps:get(Key, Value),
     KeyPattern = maps:get(Key, MapPattern),
