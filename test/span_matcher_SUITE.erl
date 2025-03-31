@@ -5,7 +5,38 @@
 
 -include("test_logger_handler.hrl").
 
--compile([export_all, nowarn_export_all]).
+-export([all/0,
+         groups/0,
+         init_per_group/2,
+         end_per_group/2,
+         init_per_testcase/2,
+         end_per_testcase/2]).
+
+-export([match_anything_test/1,
+         %% match_function_tests
+         positive_function_match_test/1,
+         not_a_matching_function_test/1,
+         function_equality_check_test/1,
+         negative_function_match_test/1,
+         %% match_map_tests
+         positive_map_match_test/1,
+         not_a_map_test/1,
+         missing_keys_test/1,
+         negative_map_match_test/1,
+         %% match_tuple_tests
+         positive_tuple_match_test/1,
+         not_a_tuple_test/1,
+         tuple_size_mismatch_test/1,
+         negative_tuple_match_test/1,
+         %% match_list_tests
+         positive_list_match_test/1,
+         not_a_list_test/1,
+         list_length_mismatch_test/1,
+         list_is_not_empty_test/1,
+         negative_list_match_test/1,
+         %% match_equal_tests
+         positive_equal_match_test/1,
+         negative_equal_match_test/1]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ct_suite callbacks
@@ -41,7 +72,7 @@ match_function_tests() ->
 match_map_tests() ->
     [positive_map_match_test,
      not_a_map_test,
-     key_is_missing_test,
+     missing_keys_test,
      negative_map_match_test].
 
 
@@ -85,6 +116,8 @@ end_per_testcase(negative_function_match_test, Config) ->
     Config;
 end_per_testcase(_, Config) ->
     Config.
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% test cases
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -160,20 +193,17 @@ not_a_map_test(Config) ->
     assert_negative_match(Value, Pattern, FailureStack, Config).
 
 
-key_is_missing_test(Config) ->
+missing_keys_test(Config) ->
     %% key_is_missing failing match
     Value = #{
               <<"some_key">> => some_value,
               {another_key} => 123,
               yet_another_key => make_ref()
              },
-    Pattern = Value#{missing_key => any_value},
-    FailureStack = [match_failed(Value, Pattern, match_map),
-                    #{
-                      reason => key_is_missing,
-                      key => missing_key,
-                      matcher => match_map_key
-                     }],
+    Pattern = Value#{missing_key1 => any_value, missing_key2 => 1},
+    FailureStack = [maps:put(missing_keys,
+                             lists:sort([missing_key1, missing_key2]),
+                             match_failed(Value, Pattern, match_map, missing_keys))],
     assert_negative_match(Value, Pattern, FailureStack, Config).
 
 
