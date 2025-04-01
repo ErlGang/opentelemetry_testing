@@ -8,6 +8,7 @@
 -export([all/0, init_per_testcase/2, end_per_testcase/2]).
 
 -export([init_test/1,
+         add_record_test/1,
          span_conversion_prop_test/1,
          recursive_records_conversion_prop_test/1]).
 
@@ -15,6 +16,8 @@
 
 -define(ADD_RECORD(RecordName, Acc),
         span_convertor:add_record(RecordName, record_info(fields, RecordName), Acc)).
+
+-define(RECORD_NAME, span).
 
 %%% declaring span type so that it can be used for the PropEr generator.
 -type span() :: #span{}.
@@ -31,6 +34,7 @@
 
 all() ->
     [init_test,
+     add_record_test,
      span_conversion_prop_test,
      recursive_records_conversion_prop_test].
 
@@ -81,6 +85,18 @@ init_test(_Config) ->
                  span_convertor:init()).
 
 
+add_record_test(_config) ->
+    %% adding the same record a second time does not change the Acc.
+    Acc = ?ADD_RECORD(?RECORD_NAME, #{}),
+    ?assertEqual(Acc, ?ADD_RECORD(?RECORD_NAME, Acc)),
+
+    %% adding a record with the same name and size but different fields causes a failure
+    Fields = record_info(fields, ?RECORD_NAME),
+    InvalidFields = [invalid_field | tl(Fields)],
+    ?assertError({inconsistent_record_definitions, Acc, [?RECORD_NAME | InvalidFields]},
+                 span_convertor:add_record(?RECORD_NAME, InvalidFields, Acc)).
+
+
 span_conversion_prop_test(_Config) ->
     ?assertEqual(ok, span_convertor:init()),
     PropTest = span_conversion_property(),
@@ -121,11 +137,9 @@ recursive_records_conversion_property() ->
             begin
                 case contains_known_records(Term) of
                     false ->
-                        ct:log("contains_known_records(Term) == false"),
                         ?assertEqual(Term, span_convertor:records_to_maps(Term)),
                         ?assertEqual(Term, span_convertor:maps_to_records(Term));
                     {true, [_ | _]} ->
-                        ct:log("contains_known_records(Term) == true"),
                         ConvertedTerm = span_convertor:records_to_maps(Term),
                         ?assertEqual(false, contains_known_records(ConvertedTerm)),
                         ?assertEqual(Term, span_convertor:maps_to_records(ConvertedTerm))
