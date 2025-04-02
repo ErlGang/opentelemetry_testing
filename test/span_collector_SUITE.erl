@@ -7,6 +7,8 @@
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
 -include_lib("opentelemetry/include/otel_span.hrl").
 
+-include("test_logger_handler.hrl").
+
 -export([all/0,
          groups/0,
          init_per_suite/1,
@@ -19,11 +21,17 @@
          ensure_started_test/1,
          build_span_tree_test/1,
          get_spans_by_name_test/1,
+         span_id_is_not_unique_test/1,
          wait_for_span_test/1,
-         reset_test/1]).
+         reset_test/1,
+         failing_to_start_test/1,
+         unknown_call_test/1,
+         unknown_cast_test/1,
+         unknown_info_test/1]).
 
 -define(NUMBER_OF_REPETITIONS, 100).
 -define(TABLE,                 '$spans_table').
+-define(GEN_SERVER_NAME,       span_collector).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ct_suite callbacks
@@ -32,6 +40,7 @@
 
 all() ->
     [{group, basic},
+     {group, errors_logging},
      {group, proper}].
 
 
@@ -41,7 +50,13 @@ groups() ->
               reset_test,
               wait_for_span_test,
               get_spans_by_name_test,
-              build_span_tree_test]},
+              build_span_tree_test,
+              span_id_is_not_unique_test]},
+     {errors_logging, [],
+                      [failing_to_start_test,
+                       unknown_call_test,
+                       unknown_cast_test,
+                       unknown_info_test]},
      {proper, [parallel],
               [build_span_tree_without_conversion_prop_test,
                build_span_tree_with_conversion_prop_test]}].
@@ -59,12 +74,20 @@ end_per_suite(Config) ->
 init_per_group(proper, Config) ->
     span_collector:reset(),
     Config;
+init_per_group(errors_logging, Config) ->
+    test_logger_handler:add_handler(),
+    span_collector:reset(),
+    Config;
 init_per_group(_Group, Config) ->
     Config.
 
 
 end_per_group(proper, Config) ->
     span_collector:reset(),
+    Config;
+end_per_group(errors_logging, Config) ->
+    test_logger_handler:remove_handler(),
+    span_collector:ensure_started(),
     Config;
 end_per_group(_Group, Config) ->
     Config.
@@ -86,15 +109,27 @@ reset_test(_Config) ->
 
 wait_for_span_test(_Config) ->
     Timeout = 300,
-    {#span{span_id = RootSpanId}, []} = span_tree({<<"some_span">>, []}),
-    ?assertEqual(ok, span_collector:wait_for_span(RootSpanId, Timeout)),
+    RetryAfter = 150,
+    {#span{span_id = SpanId} = ExpectedSpan, []} = span_tree({<<"some_span">>, []}),
+    Ret = span_collector:wait_for_span(SpanId, Timeout),
+    ?assertMatch({ok, _}, Ret),
+    {ok, Span} = Ret,
+    ?assertEqual(ExpectedSpan, remove_end_time(Span)),
+    %% subsequent calls to span_collector:wait_for_span/2 must
+    %% return the same span
+    ?assertEqual(Ret, span_collector:wait_for_span(SpanId, 0)),
+    ?assertEqual(Ret, span_collector:wait_for_span(SpanId, 0)),
+
+    %% check that timeout works as expected
     span_collector:reset(),
-    {Time, Value} = timer:tc(span_collector,
-                             wait_for_span,
-                             [RootSpanId, Timeout],
-                             millisecond),
-    ?assertEqual({error, timeout}, Value),
-    ?assert(Time > Timeout).
+    {Time1, Value1} =
+        timer:tc(span_collector, wait_for_span, [SpanId, Timeout], millisecond),
+    ?assertEqual({error, timeout}, Value1),
+    ?assert(Time1 >= Timeout),
+    {Time2, Value2} =
+        timer:tc(span_collector, wait_for_span, [SpanId, 0], millisecond),
+    ?assertEqual({error, timeout}, Value2),
+    ?assert(Time2 < RetryAfter).
 
 
 get_spans_by_name_test(_Config) ->
@@ -125,13 +160,86 @@ build_span_tree_test(_Config) ->
     SpanTree2 = span_collector:build_span_tree(RootSpanId, fun remove_end_time/1),
     ?assertEqual(ExpectedSpanTree, SpanTree2),
     SpanTree3 = span_collector:build_span_tree(RootSpanId, fun(X) -> X end),
-    ?assertEqual(SpanTree1, SpanTree3).
+    ?assertEqual(SpanTree1, SpanTree3),
+
+    %% span tree is building for non-root spans
+    {_, [{#span{span_id = SubSpanId}, _} = SubTree | _]} = ExpectedSpanTree,
+    ct:log("SubTree = ~p", [SubTree]),
+    ?assertEqual(SubTree,
+                 span_collector:build_span_tree(SubSpanId,
+                                                fun remove_end_time/1)),
+
+    span_collector:reset(),
+    ?assertEqual({error, not_found}, span_collector:build_span_tree(RootSpanId)).
 
 
 ensure_started_test(_Config) ->
     %% basic check if span_collector:ensure_started/0 interface is idempotent
     ?assertEqual(ok, span_collector:ensure_started()),
     ?assertEqual(ok, span_collector:ensure_started()).
+
+
+span_id_is_not_unique_test(_Config) ->
+    SpanName = <<"some_span">>,
+    {#span{span_id = RootSpanId} = Span, []} = span_tree({SpanName, []}),
+    %% since Span has no end time, it is different from the record stored
+    %% in span_collector's ETS. because the ETS type is bag, span_collector
+    %% will successfully store the Span record to ETS.
+    erlang:send(?GEN_SERVER_NAME, {span, Span}),
+    timer:sleep(100),
+    ?assertEqual({error, span_id_is_not_unique},
+                 span_collector:build_span_tree(RootSpanId)),
+    ?assertEqual({error, span_id_is_not_unique},
+                 span_collector:wait_for_span(RootSpanId, 0)).
+
+
+failing_to_start_test(_Config) ->
+    test_logger_handler:set_pid(),
+    span_collector:ensure_started(),
+    ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
+    span_collector:stop(),
+    ?assertEqual(undefined, whereis(?GEN_SERVER_NAME)),
+    %% create ets table with the same name as span_collector uses, so
+    %% span_collector:init/1 crashes on attempt to create ETS table.
+    %% there is no need to drop the created ETS, it is automatically
+    %% removed when the testcase process stops.
+    ets:new(?TABLE, [named_table]),
+    ?assertEqual({error, failed_to_start_span_collector},
+                 span_collector:ensure_started()),
+    ?assertEqual(undefined, whereis(?GEN_SERVER_NAME)),
+    ?assertLogMessage("failed to start span_collector:",
+                      error,
+                      {span_collector, ensure_started, 0}).
+
+
+unknown_call_test(_Config) ->
+    test_logger_handler:set_pid(),
+    span_collector:ensure_started(),
+    ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
+    ?assertEqual(not_implemented, gen_server:call(?GEN_SERVER_NAME, some_call)),
+    timer:sleep(100),
+    ?assertEqual(undefined, whereis(?GEN_SERVER_NAME)),
+    ?assertLogMessage("unexpected call request:", error, _).
+
+
+unknown_cast_test(_Config) ->
+    test_logger_handler:set_pid(),
+    span_collector:ensure_started(),
+    ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
+    gen_server:cast(?GEN_SERVER_NAME, some_cast),
+    timer:sleep(100),
+    ?assertEqual(undefined, whereis(?GEN_SERVER_NAME)),
+    ?assertLogMessage("unexpected cast request:", error, _).
+
+
+unknown_info_test(_Config) ->
+    test_logger_handler:set_pid(),
+    span_collector:ensure_started(),
+    ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
+    erlang:send(?GEN_SERVER_NAME, some_call),
+    timer:sleep(100),
+    ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
+    ?assertLogMessage("unexpected info message:", error, _).
 
 
 build_span_tree_without_conversion_prop_test(_Config) ->
@@ -205,7 +313,7 @@ span_gen() ->
 generate_span_tree(GeneratedSpanTree) ->
     ExpectedSpanTree = span_tree(GeneratedSpanTree),
     {#span{span_id = RootSpanId}, _Children} = ExpectedSpanTree,
-    ?assertEqual(ok, span_collector:wait_for_span(RootSpanId, 500)),
+    ?assertMatch({ok, _}, span_collector:wait_for_span(RootSpanId, 500)),
     {RootSpanId, ExpectedSpanTree}.
 
 
@@ -215,8 +323,21 @@ span_tree({Span, Children}) ->
                fun(SpanCtx) ->
                        Branches = [ span_tree(C) || C <- Children ],
                        SpanId = SpanCtx#span_ctx.span_id,
-                       {hd(ets:lookup(otel_span_table, SpanId)), Branches}
+                       timer:sleep(100),
+                       {get_span(SpanId, 300), Branches}
                end).
+
+
+get_span(SpanId, Timeout) when Timeout > 0 ->
+    case ets:lookup(otel_span_table, SpanId) of
+        [] ->
+            ct:log("failed to get span ~p", [SpanId]),
+            timer:sleep(50),
+            get_span(SpanId, Timeout - 50);
+        [Span] -> Span
+    end;
+get_span(SpanId, _Timeout) ->
+    error({failed_to_get_span, SpanId}).
 
 
 remove_end_time(Span) ->

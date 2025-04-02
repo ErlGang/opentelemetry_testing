@@ -12,6 +12,7 @@
 
 %% API
 -export([ensure_started/0,
+         stop/0,
          reset/0,
          get_span_id_by_name/1,
          get_spans_by_name/1,
@@ -39,6 +40,10 @@ ensure_started() ->
     end.
 
 
+stop() ->
+    gen_server:stop(?MODULE).
+
+
 reset() ->
     gen_server:call(?MODULE, reset).
 
@@ -63,9 +68,9 @@ wait_for_span(SpanId, Timeout) ->
     RetryAfter = 150,
     MatchPattern = #span{span_id = SpanId, _ = '_'},
     case ets:match_object(?TABLE, MatchPattern) of
-        [_] -> ok;
+        [Span] -> {ok, Span};
         [] ->
-            timer:sleep(RetryAfter),
+            Timeout > 0 andalso timer:sleep(RetryAfter),
             wait_for_span(SpanId, Timeout - RetryAfter);
         [_, _ | _] ->
             %% this should never happen
@@ -78,7 +83,7 @@ build_span_tree(SpanId) ->
 
 
 build_span_tree(SpanId, ConvertSpanFn) ->
-    MatchPattern = #span{span_id = SpanId, parent_span_id = undefined, _ = '_'},
+    MatchPattern = #span{span_id = SpanId, _ = '_'},
     case ets:match_object(?TABLE, MatchPattern) of
         [Span] ->
             build_tree_for_span(Span, ConvertSpanFn);
