@@ -49,6 +49,8 @@ reset() ->
 
 
 get_span_id_by_name(Name) ->
+    %% span_id is used as an ETS key (ETS of type set) at otel_span_ets,
+    %% so it must be sufficient to uniquely identify the span.
     MatchPattern = #span{name = Name, span_id = '$1', _ = '_'},
     case ets:match(?TABLE, MatchPattern) of
         [[SpandId]] -> {ok, SpandId};
@@ -73,7 +75,9 @@ wait_for_span(SpanId, Timeout) ->
             Timeout > 0 andalso timer:sleep(RetryAfter),
             wait_for_span(SpanId, Timeout - RetryAfter);
         [_, _ | _] ->
-            %% this should never happen
+            %% this should never happen. span_id is used as an ETS key
+            %% (ETS of type set) at otel_span_ets, so it must be enough
+            %% to uniquely identify the span.
             {error, span_id_is_not_unique}
     end.
 
@@ -86,11 +90,13 @@ build_span_tree(SpanId, ConvertSpanFn) ->
     MatchPattern = #span{span_id = SpanId, _ = '_'},
     case ets:match_object(?TABLE, MatchPattern) of
         [Span] ->
-            build_tree_for_span(Span, ConvertSpanFn);
+            {ok, build_tree_for_span(Span, ConvertSpanFn)};
         [] ->
             {error, not_found};
         [_, _ | _] ->
-            %% this should never happen
+            %% this should never happen. span_id is used as an ETS key
+            %% (ETS of type set) at otel_span_ets, so it must be enough
+            %% to uniquely identify the span.
             {error, span_id_is_not_unique}
     end.
 
