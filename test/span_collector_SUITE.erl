@@ -5,8 +5,11 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("test_logs/include/test_logs.hrl").
 
+%% otel_tracer.hrl defines tracing marcos (e.g. ?with_span())
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
+%% opentelemetry.hrl contains #span_ctx{} record declaration
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
+%% otel_span.hrl contains #span{} record declaration
 -include_lib("opentelemetry/include/otel_span.hrl").
 
 -export([all/0,
@@ -32,6 +35,11 @@
 -define(NUMBER_OF_REPETITIONS, 100).
 -define(TABLE,                 '$spans_table').
 -define(GEN_SERVER_NAME,       span_collector).
+
+-define(MILLISECONDS(Action),
+        element(1, timer:tc(fun() -> Action end, millisecond))).
+-define(assertNoDelay(Action), ?assert(?MILLISECONDS(Action) < 2)).
+-define(assertTimeout(Action, Timeout), ?assert(?MILLISECONDS(Action) >= Timeout)).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ct_suite callbacks
@@ -109,27 +117,23 @@ reset_test(_Config) ->
 
 wait_for_span_test(_Config) ->
     Timeout = 300,
-    RetryAfter = 150,
     {#span{span_id = SpanId} = ExpectedSpan, []} = span_tree({<<"some_span">>, []}),
     Ret = span_collector:wait_for_span(SpanId, Timeout),
     ?assertMatch({ok, _}, Ret),
     {ok, Span} = Ret,
     ?assertEqual(ExpectedSpan, remove_end_time(Span)),
     %% subsequent calls to span_collector:wait_for_span/2 must
-    %% return the same span
-    ?assertEqual(Ret, span_collector:wait_for_span(SpanId, 0)),
-    ?assertEqual(Ret, span_collector:wait_for_span(SpanId, 0)),
+    %% immediately return the same span
+    ?assertNoDelay(?assertEqual(Ret, span_collector:wait_for_span(SpanId, Timeout))),
+    ?assertNoDelay(?assertEqual(Ret, span_collector:wait_for_span(SpanId, 0))),
 
     %% check that timeout works as expected
     span_collector:reset(),
-    {Time1, Value1} =
-        timer:tc(span_collector, wait_for_span, [SpanId, Timeout], millisecond),
-    ?assertEqual({error, timeout}, Value1),
-    ?assert(Time1 >= Timeout),
-    {Time2, Value2} =
-        timer:tc(span_collector, wait_for_span, [SpanId, 0], millisecond),
-    ?assertEqual({error, timeout}, Value2),
-    ?assert(Time2 < RetryAfter).
+    ?assertTimeout(?assertEqual({error, timeout},
+                                span_collector:wait_for_span(SpanId, Timeout)),
+                   Timeout),
+    ?assertNoDelay(?assertEqual({error, timeout},
+                                span_collector:wait_for_span(SpanId, 0))).
 
 
 get_spans_by_name_test(_Config) ->
@@ -155,17 +159,17 @@ build_span_tree_test(_Config) ->
                        [{<<"yet_another_span">>, []}]},
                       {<<"another_span">>, []}]},
     {RootSpanId, ExpectedSpanTree} = generate_span_tree(SpanTreeInput),
-    SpanTree1 = span_collector:build_span_tree(RootSpanId),
+    {ok, SpanTree1} = span_collector:build_span_tree(RootSpanId),
     ?assertEqual(ExpectedSpanTree, remove_end_time_recursively(SpanTree1)),
-    SpanTree2 = span_collector:build_span_tree(RootSpanId, fun remove_end_time/1),
+    {ok, SpanTree2} = span_collector:build_span_tree(RootSpanId, fun remove_end_time/1),
     ?assertEqual(ExpectedSpanTree, SpanTree2),
-    SpanTree3 = span_collector:build_span_tree(RootSpanId, fun(X) -> X end),
+    {ok, SpanTree3} = span_collector:build_span_tree(RootSpanId, fun(X) -> X end),
     ?assertEqual(SpanTree1, SpanTree3),
 
     %% span tree is building for non-root spans
     {_, [{#span{span_id = SubSpanId}, _} = SubTree | _]} = ExpectedSpanTree,
     ct:log("SubTree = ~p", [SubTree]),
-    ?assertEqual(SubTree,
+    ?assertEqual({ok, SubTree},
                  span_collector:build_span_tree(SubSpanId,
                                                 fun remove_end_time/1)),
 
@@ -264,7 +268,7 @@ build_span_tree_without_conversion_property() ->
             span_tree_gen(3),
             begin
                 {RootSpanId, ExpectedSpanTree} = generate_span_tree(GeneratedSpanTree),
-                SpanTree = span_collector:build_span_tree(RootSpanId),
+                {ok, SpanTree} = span_collector:build_span_tree(RootSpanId),
                 ?assertEqual(ExpectedSpanTree, remove_end_time_recursively(SpanTree)),
                 true
             end).
@@ -275,7 +279,7 @@ build_span_tree_with_conversion_property() ->
             span_tree_gen(3),
             begin
                 {RootSpanId, ExpectedSpanTree} = generate_span_tree(GeneratedSpanTree),
-                SpanTree = span_collector:build_span_tree(RootSpanId, fun remove_end_time/1),
+                {ok, SpanTree} = span_collector:build_span_tree(RootSpanId, fun remove_end_time/1),
                 ?assertEqual(ExpectedSpanTree, SpanTree),
                 true
             end).
@@ -290,15 +294,16 @@ span_tree_gen(MaxDepth) ->
     {span_gen(), span_subtree_gen(MaxDepth)}.
 
 
-span_subtree_gen(MaxDepth) ->
-    BasicWeight = 1000,
-    DepthWeight = max(MaxDepth * BasicWeight, 0),
-    ?LAZY(frequency([{DepthWeight, small_list_gen(span_tree_gen(MaxDepth - 1), 5)},
-                     {BasicWeight, []}])).
+span_subtree_gen(MaxDepth) when MaxDepth > 0 ->
+    BasicWeight = 1,
+    DepthWeight = MaxDepth * BasicWeight,
+    ?LAZY(frequency([{DepthWeight, small_list_gen(span_tree_gen(MaxDepth - 1), 3)},
+                     {BasicWeight, []}]));
+span_subtree_gen(_MaxDepth) -> [].
 
 
 small_list_gen(Type, Limit) ->
-    ?SUCHTHATMAYBE(List, non_empty(list(Type)), (length(List) =< Limit)).
+    ?LET(Length, integer(1, Limit), vector(Length, Type)).
 
 
 span_gen() ->
@@ -319,7 +324,6 @@ generate_span_tree(GeneratedSpanTree) ->
 
 span_tree({Span, Children}) ->
     ?with_span(Span,
-               #{},
                fun(SpanCtx) ->
                        Branches = [ span_tree(C) || C <- Children ],
                        SpanId = SpanCtx#span_ctx.span_id,
