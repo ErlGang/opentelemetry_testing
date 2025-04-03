@@ -2,8 +2,7 @@
 -behavior(ct_suite).
 
 -include_lib("stdlib/include/assert.hrl").
-
--include("test_logger_handler.hrl").
+-include_lib("test_logs/include/test_logs.hrl").
 
 -export([all/0,
          groups/0,
@@ -105,14 +104,14 @@ end_per_group(_Group, Config) ->
 
 
 init_per_testcase(negative_function_match_test, Config) ->
-    test_logger_handler:add_handler(),
+    test_logs:add_handler(),
     Config;
 init_per_testcase(_, Config) ->
     Config.
 
 
 end_per_testcase(negative_function_match_test, Config) ->
-    test_logger_handler:remove_handler(),
+    test_logs:remove_handler(),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -163,9 +162,9 @@ negative_function_match_test(Config) ->
     Value = 123,
     assert_negative_function_match(Value, fun negative_match_function/1, Config),
     assert_negative_function_match(Value, fun invalid_return_match_function/1, Config),
-    test_logger_handler:set_pid(),
+    test_logs:set_pid(),
     assert_negative_function_match(Value, fun crash_match_function/1, Config),
-    ?assertLogMessage("match function crashed", error, _).
+    ?assertLogEvent({"match function crashed" ++ _, _}, error, _).
 
 
 positive_map_match_test(Config) ->

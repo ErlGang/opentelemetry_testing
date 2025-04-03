@@ -98,7 +98,7 @@ match_function(Value, FnPattern) ->
     catch
         Type:Reason:Stacktrace ->
             ?LOG_ERROR(
-              "match function crashed: ErrorType == ~p,"
+              "match function crashed: ErrorType == ~p," ++
               " Reason == ~p, Stacktrace == ~p",
               [Type, Reason, Stacktrace]),
             {false, [?FAILED_MATCH(Value, FnPattern)]}
