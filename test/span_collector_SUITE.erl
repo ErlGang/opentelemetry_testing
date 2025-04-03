@@ -3,11 +3,11 @@
 
 -include_lib("proper/include/proper.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("test_logs/include/test_logs.hrl").
+
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
 -include_lib("opentelemetry/include/otel_span.hrl").
-
--include("test_logger_handler.hrl").
 
 -export([all/0,
          groups/0,
@@ -75,7 +75,7 @@ init_per_group(proper, Config) ->
     span_collector:reset(),
     Config;
 init_per_group(errors_logging, Config) ->
-    test_logger_handler:add_handler(),
+    test_logs:add_handler(),
     span_collector:reset(),
     Config;
 init_per_group(_Group, Config) ->
@@ -86,7 +86,7 @@ end_per_group(proper, Config) ->
     span_collector:reset(),
     Config;
 end_per_group(errors_logging, Config) ->
-    test_logger_handler:remove_handler(),
+    test_logs:remove_handler(),
     span_collector:ensure_started(),
     Config;
 end_per_group(_Group, Config) ->
@@ -194,7 +194,7 @@ span_id_is_not_unique_test(_Config) ->
 
 
 failing_to_start_test(_Config) ->
-    test_logger_handler:set_pid(),
+    test_logs:set_pid(),
     span_collector:ensure_started(),
     ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
     span_collector:stop(),
@@ -207,39 +207,39 @@ failing_to_start_test(_Config) ->
     ?assertEqual({error, failed_to_start_span_collector},
                  span_collector:ensure_started()),
     ?assertEqual(undefined, whereis(?GEN_SERVER_NAME)),
-    ?assertLogMessage("failed to start span_collector:",
-                      error,
-                      {span_collector, ensure_started, 0}).
+    ?assertLogEvent({"failed to start span_collector:" ++ _, _},
+                    error,
+                    #{mfa := {span_collector, ensure_started, 0}}).
 
 
 unknown_call_test(_Config) ->
-    test_logger_handler:set_pid(),
+    test_logs:set_pid(),
     span_collector:ensure_started(),
     ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
     ?assertEqual(not_implemented, gen_server:call(?GEN_SERVER_NAME, some_call)),
     timer:sleep(100),
     ?assertEqual(undefined, whereis(?GEN_SERVER_NAME)),
-    ?assertLogMessage("unexpected call request:", error, _).
+    ?assertLogEvent({"unexpected call request:" ++ _, _}, error, _).
 
 
 unknown_cast_test(_Config) ->
-    test_logger_handler:set_pid(),
+    test_logs:set_pid(),
     span_collector:ensure_started(),
     ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
     gen_server:cast(?GEN_SERVER_NAME, some_cast),
     timer:sleep(100),
     ?assertEqual(undefined, whereis(?GEN_SERVER_NAME)),
-    ?assertLogMessage("unexpected cast request:", error, _).
+    ?assertLogEvent({"unexpected cast request:" ++ _, _}, error, _).
 
 
 unknown_info_test(_Config) ->
-    test_logger_handler:set_pid(),
+    test_logs:set_pid(),
     span_collector:ensure_started(),
     ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
     erlang:send(?GEN_SERVER_NAME, some_call),
     timer:sleep(100),
     ?assertNotEqual(undefined, whereis(?GEN_SERVER_NAME)),
-    ?assertLogMessage("unexpected info message:", error, _).
+    ?assertLogEvent({"unexpected info message:" ++ _, _}, error, _).
 
 
 build_span_tree_without_conversion_prop_test(_Config) ->
