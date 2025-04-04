@@ -51,7 +51,7 @@ reset() ->
 get_span_id_by_name(Name) ->
     %% span_id is used as an ETS key (ETS of type set) at otel_span_ets,
     %% so it must be sufficient to uniquely identify the span.
-    MatchPattern = #span{name = Name, span_id = '$1', _ = '_'},
+    MatchPattern = span_match_pattern(#{name => Name, span_id => '$1'}),
     case ets:match(?TABLE, MatchPattern) of
         [[SpandId]] -> {ok, SpandId};
         [] -> {error, not_found};
@@ -60,7 +60,7 @@ get_span_id_by_name(Name) ->
 
 
 get_spans_by_name(Name) ->
-    MatchPattern = #span{name = Name, _ = '_'},
+    MatchPattern = span_match_pattern(#{name => Name}),
     ets:match_object(?TABLE, MatchPattern).
 
 
@@ -68,7 +68,7 @@ wait_for_span(_SpanId, Timeout) when Timeout < 0 ->
     {error, timeout};
 wait_for_span(SpanId, Timeout) ->
     RetryAfter = 150,
-    MatchPattern = #span{span_id = SpanId, _ = '_'},
+    MatchPattern = span_match_pattern(#{span_id => SpanId}),
     case ets:match_object(?TABLE, MatchPattern) of
         [Span] -> {ok, Span};
         [] ->
@@ -87,7 +87,7 @@ build_span_tree(SpanId) ->
 
 
 build_span_tree(SpanId, ConvertSpanFn) ->
-    MatchPattern = #span{span_id = SpanId, _ = '_'},
+    MatchPattern = span_match_pattern(#{span_id => SpanId}),
     case ets:match_object(?TABLE, MatchPattern) of
         [Span] ->
             {ok, build_tree_for_span(Span, ConvertSpanFn)};
@@ -144,6 +144,18 @@ handle_info(Info, State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% local functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+span_match_pattern(MatchMap) ->
+    SpanRecordSize = record_info(size, span),
+    SpanPattern = erlang:make_tuple(SpanRecordSize, '_'),
+    FieldPosMap = maps:from_list(lists:zip(record_info(fields, span),
+                                           lists:seq(2, SpanRecordSize))),
+    maps:fold(fun(Field, Value, Tuple) ->
+                      setelement(maps:get(Field, FieldPosMap), Tuple, Value)
+              end,
+              SpanPattern,
+              MatchMap).
 
 
 configure_opentelemetry() ->
