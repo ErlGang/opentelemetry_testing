@@ -8,11 +8,27 @@
 
 -define(MATCH_VALUE(Value, Pattern), match_value(Value, Pattern)).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% type definitions
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 -type value() :: term().
 -type pattern() :: term().
--type failure_map() :: #{matcher := atom(), reason := any(), any() => any()}.
+-type failure_map() :: #{
+                         matcher := atom(),
+                         reason := atom(),
+                         term() => term()
+                        }.
 -type failure_stack() :: [failure_map()].
 -type match_result() :: true | {false, failure_stack()}.
+-type fn_pattern() :: fun((value()) -> boolean()).
+
+-export_type([failure_map/0,
+              failure_stack/0,
+              match_result/0,
+              value/0,
+              pattern/0,
+              fn_pattern/0]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% exported functions
@@ -90,7 +106,7 @@ match_value(Value, Pattern) ->
     match_equal(Value, Pattern).
 
 
--spec match_function(value(), function()) -> match_result().
+-spec match_function(value(), fn_pattern()) -> match_result().
 match_function(Value, FnPattern) ->
     try FnPattern(Value) of
         true -> true;

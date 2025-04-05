@@ -14,10 +14,12 @@
 
 -endif.
 
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% API implementation
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+-spec init() -> ok.
 init() ->
     %% read internal record definitions for attributes, events and links.
     %% both otel_links and otel_events modules include otel_span.hrl, so
@@ -28,11 +30,13 @@ init() ->
     maybe_store_record_definitions(OtelRecords3).
 
 
+-spec records_to_maps(term()) -> term().
 records_to_maps(Term) ->
     RecordDefinitionMap = get_record_definitions(),
     recursive_record_to_map(Term, RecordDefinitionMap).
 
 
+-spec maps_to_records(term()) -> term().
 maps_to_records(Term) ->
     RecordDefinitionMap = get_record_definitions(),
     recursive_map_to_record(Term, RecordDefinitionMap).

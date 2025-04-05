@@ -1,6 +1,15 @@
 -module(opentelemetry_testing).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% type definitions
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+-type span_map() :: map().
+-type span_map_tree() :: span_collector:tree(span_map()).
+
+-export_type([span_map/0, span_map_tree/0]).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% exported functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -19,6 +28,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
+-spec ensure_started() -> ok.
 ensure_started() ->
     application:load(opentelemetry),
     application:set_env(opentelemetry, traces_exporter, none),
@@ -28,19 +38,26 @@ ensure_started() ->
     ok = span_collector:ensure_started().
 
 
+-spec reset() -> ok.
 reset() ->
     span_collector:reset().
 
 
+-spec get_span_id_by_name(opentelemetry:span_name()) ->
+          {ok, opentelemetry:span_id()} | {error, not_found | name_is_not_unique}.
 get_span_id_by_name(Name) ->
     span_collector:get_span_id_by_name(Name).
 
 
+-spec get_spans_by_name(opentelemetry:span_name()) ->
+          [span_map()].
 get_spans_by_name(Name) ->
     Spans = span_collector:get_spans_by_name(Name),
     [ convert_span(Span) || Span <- Spans ].
 
 
+-spec wait_for_span(opentelemetry:span_id(), non_neg_integer()) ->
+          {ok, span_map()} | {error, timeout | span_id_is_not_unique}.
 wait_for_span(SpanId, Timeout) ->
     case span_collector:wait_for_span(SpanId, Timeout) of
         {ok, Span} -> {ok, convert_span(Span)};
@@ -48,14 +65,20 @@ wait_for_span(SpanId, Timeout) ->
     end.
 
 
+-spec build_span_tree(opentelemetry:span_id()) ->
+          {ok, span_map_tree()} | {error, not_found | span_id_is_not_unique}.
 build_span_tree(SpanId) ->
     span_collector:build_span_tree(SpanId, fun convert_span/1).
 
 
+-spec build_span_tree(opentelemetry:span_id(), span_collector:span_convertor()) ->
+          {ok, span_collector:span_data_tree()} |
+          {error, not_found | span_id_is_not_unique}.
 build_span_tree(SpanId, ConvertSpanFn) ->
     span_collector:build_span_tree(SpanId, ConvertSpanFn).
 
 
+-spec convert_span(span_collector:span()) -> span_map().
 convert_span(Span) ->
     ConversionFunctions = [fun span_convertor:records_to_maps/1,
                            fun maybe_simplify_attributes/1,
@@ -65,6 +88,8 @@ convert_span(Span) ->
     lists:foldl(FoldFn, Span, ConversionFunctions).
 
 
+-spec match(span_matcher:value(), span_matcher:pattern()) ->
+          span_matcher:match_result().
 match(Value, Pattern) ->
     span_matcher:match(Value, Pattern).
 
