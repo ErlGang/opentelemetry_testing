@@ -19,8 +19,7 @@
          init_per_group/2,
          end_per_group/2]).
 
--export([build_span_tree_without_conversion_prop_test/1,
-         build_span_tree_with_conversion_prop_test/1,
+-export([build_span_tree_prop_test/1,
          ensure_started_test/1,
          build_span_tree_test/1,
          get_spans_by_name_test/1,
@@ -66,8 +65,8 @@ groups() ->
                        unknown_cast_test,
                        unknown_info_test]},
      {proper, [parallel],
-              [build_span_tree_without_conversion_prop_test,
-               build_span_tree_with_conversion_prop_test]}].
+              [build_span_tree_prop_test,
+               build_span_tree_prop_test]}].
 
 
 init_per_suite(Config) ->
@@ -159,22 +158,22 @@ build_span_tree_test(_Config) ->
                        [{<<"yet_another_span">>, []}]},
                       {<<"another_span">>, []}]},
     {RootSpanId, ExpectedSpanTree} = generate_span_tree(SpanTreeInput),
-    {ok, SpanTree1} = span_collector:build_span_tree(RootSpanId),
-    ?assertEqual(ExpectedSpanTree, remove_end_time_recursively(SpanTree1)),
-    {ok, SpanTree2} = span_collector:build_span_tree(RootSpanId, fun remove_end_time/1),
-    ?assertEqual(ExpectedSpanTree, SpanTree2),
-    {ok, SpanTree3} = span_collector:build_span_tree(RootSpanId, fun(X) -> X end),
-    ?assertEqual(SpanTree1, SpanTree3),
+    ?assertEqual({ok, ExpectedSpanTree},
+                 span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
+    %% span_collector:build_span_tree/2 returns the same tree if called twice.
+    ?assertEqual({ok, ExpectedSpanTree},
+                 span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
 
-    %% span tree is building for non-root spans
-    {_, [{#span{span_id = SubSpanId}, _} = SubTree | _]} = ExpectedSpanTree,
-    ct:log("SubTree = ~p", [SubTree]),
-    ?assertEqual({ok, SubTree},
-                 span_collector:build_span_tree(SubSpanId,
-                                                fun remove_end_time/1)),
+    %% span tree is building successfully for non-root spans
+    [ begin
+          ct:log("SubTree = ~p", [SubTree]),
+          ?assertEqual({ok, SubTree},
+                       span_collector:build_span_tree(SpanId, fun remove_end_time/1))
+      end || {#span{span_id = SpanId}, _} = SubTree <- element(2, ExpectedSpanTree) ],
 
     span_collector:reset(),
-    ?assertEqual({error, not_found}, span_collector:build_span_tree(RootSpanId)).
+    ?assertEqual({error, not_found},
+                 span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)).
 
 
 ensure_started_test(_Config) ->
@@ -192,7 +191,7 @@ span_id_is_not_unique_test(_Config) ->
     erlang:send(?GEN_SERVER_NAME, {span, Span}),
     timer:sleep(100),
     ?assertEqual({error, span_id_is_not_unique},
-                 span_collector:build_span_tree(RootSpanId)),
+                 span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
     ?assertEqual({error, span_id_is_not_unique},
                  span_collector:wait_for_span(RootSpanId, 0)).
 
@@ -246,14 +245,8 @@ unknown_info_test(_Config) ->
     ?assertLogEvent({"unexpected info message:" ++ _, _}, error, _).
 
 
-build_span_tree_without_conversion_prop_test(_Config) ->
-    PropTest = build_span_tree_without_conversion_property(),
-    ?assertEqual(true, proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
-    ok.
-
-
-build_span_tree_with_conversion_prop_test(_Config) ->
-    PropTest = build_span_tree_with_conversion_property(),
+build_span_tree_prop_test(_Config) ->
+    PropTest = build_span_tree_property(),
     ?assertEqual(true, proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
     ok.
 
@@ -263,18 +256,7 @@ build_span_tree_with_conversion_prop_test(_Config) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-build_span_tree_without_conversion_property() ->
-    ?FORALL(GeneratedSpanTree,
-            span_tree_gen(3),
-            begin
-                {RootSpanId, ExpectedSpanTree} = generate_span_tree(GeneratedSpanTree),
-                {ok, SpanTree} = span_collector:build_span_tree(RootSpanId),
-                ?assertEqual(ExpectedSpanTree, remove_end_time_recursively(SpanTree)),
-                true
-            end).
-
-
-build_span_tree_with_conversion_property() ->
+build_span_tree_property() ->
     ?FORALL(GeneratedSpanTree,
             span_tree_gen(3),
             begin
@@ -346,9 +328,3 @@ get_span(SpanId, _Timeout) ->
 
 remove_end_time(Span) ->
     Span#span{end_time = undefined, is_recording = true}.
-
-
-remove_end_time_recursively({Span, Children}) ->
-    ProcessedChildren = [ remove_end_time_recursively(Child) || Child <- Children ],
-    ProcessedSpan = Span#span{end_time = undefined, is_recording = true},
-    {ProcessedSpan, ProcessedChildren}.
