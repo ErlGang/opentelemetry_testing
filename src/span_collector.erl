@@ -11,6 +11,28 @@
         erlang:make_tuple(record_info(size, RecordName),
                           '_',
                           [{1, RecordName} | InitList])).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% type definitions
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+-type tree(Type) :: {Type, [tree(Type)]}.
+
+-type span() :: #span{}.
+-type span_tree() :: tree(span()).
+
+-type span_data() :: term().
+-type span_data_tree() :: tree(span_data()).
+
+-type span_convertor() :: fun((span()) -> span_data()).
+
+-export_type([tree/1,
+              span/0,
+              span_tree/0,
+              span_data/0,
+              span_data_tree/0,
+              span_convertor/0]).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% exported functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -32,6 +54,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
+-spec ensure_started() -> ok | {error, failed_to_start_span_collector}.
 ensure_started() ->
     case gen_server:start({local, ?MODULE}, ?MODULE, no_args, []) of
         {ok, _Pid} -> ok;
@@ -45,14 +68,18 @@ ensure_started() ->
     end.
 
 
+-spec stop() -> ok.
 stop() ->
     gen_server:stop(?MODULE).
 
 
+-spec reset() -> ok.
 reset() ->
     gen_server:call(?MODULE, reset).
 
 
+-spec get_span_id_by_name(opentelemetry:span_name()) ->
+          {ok, opentelemetry:span_id()} | {error, not_found | name_is_not_unique}.
 get_span_id_by_name(Name) ->
     %% span_id is used as an ETS key (ETS of type set) at otel_span_ets,
     %% so it must be sufficient to uniquely identify the span.
@@ -64,11 +91,15 @@ get_span_id_by_name(Name) ->
     end.
 
 
+-spec get_spans_by_name(opentelemetry:span_name()) ->
+          [span()].
 get_spans_by_name(Name) ->
     MatchPattern = ?SPAN_PATTERN([{#span.name, Name}]),
     ets:match_object(?TABLE, MatchPattern).
 
 
+-spec wait_for_span(opentelemetry:span_id(), non_neg_integer()) ->
+          {ok, span()} | {error, timeout | span_id_is_not_unique}.
 wait_for_span(_SpanId, Timeout) when Timeout < 0 ->
     {error, timeout};
 wait_for_span(SpanId, Timeout) ->
@@ -87,10 +118,14 @@ wait_for_span(SpanId, Timeout) ->
     end.
 
 
+-spec build_span_tree(opentelemetry:span_id()) ->
+          {ok, span_tree()} | {error, not_found | span_id_is_not_unique}.
 build_span_tree(SpanId) ->
     build_span_tree(SpanId, fun take_span_as_is/1).
 
 
+-spec build_span_tree(opentelemetry:span_id(), span_convertor()) ->
+          {ok, span_data_tree()} | {error, not_found | span_id_is_not_unique}.
 build_span_tree(SpanId, ConvertSpanFn) ->
     MatchPattern = ?SPAN_PATTERN([{#span.span_id, SpanId}]),
     case ets:match_object(?TABLE, MatchPattern) of
