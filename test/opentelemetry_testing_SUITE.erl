@@ -7,8 +7,6 @@
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
 %% opentelemetry.hrl contains #span_ctx{} record declaration
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
-%% otel_span.hrl contains #span{} record declaration
--include_lib("opentelemetry/include/otel_span.hrl").
 
 -export([all/0,
          groups/0,
@@ -20,8 +18,7 @@
 -export([ensure_started_test/1,
          get_spans_by_name_test/1,
          wait_for_span_test/1,
-         build_span_tree_without_conversion_test/1,
-         build_span_tree_with_conversion_test/1]).
+         build_span_tree_test/1]).
 
 -define(MILLISECONDS(Action),
         element(1, timer:tc(fun() -> Action end, millisecond))).
@@ -43,8 +40,8 @@ groups() ->
                    get_spans_by_name_test,
                    {group, build_span_tree}]},
      {build_span_tree, [parallel],
-                       [build_span_tree_without_conversion_test,
-                        build_span_tree_with_conversion_test]}].
+                       [build_span_tree_test,
+                        build_span_tree_test]}].
 
 
 init_per_suite(Config) ->
@@ -133,22 +130,7 @@ get_spans_by_name_test(_Config) ->
                  opentelemetry_testing:get_spans_by_name(Name)).
 
 
-build_span_tree_with_conversion_test(Config) ->
-    SpanTreesData = proplists:get_value(span_trees_data, Config),
-    {TreePatterns, _Links} = generate_span_trees(SpanTreesData, fun record_pattern/1),
-    [ begin
-          {#span{span_id = RootSpanId}, _} = Pattern,
-          ?assertMatch({ok, #{}}, opentelemetry_testing:wait_for_span(RootSpanId, 500)),
-          {ok, SpanTree} = opentelemetry_testing:build_span_tree(RootSpanId,
-                                                                 fun(X) -> X end),
-          ct:log("SpanTree = ~p", [SpanTree]),
-          ct:log("Pattern = ~p", [Pattern]),
-          ?assert(opentelemetry_testing:match(SpanTree, Pattern))
-      end || Pattern <- TreePatterns ],
-    ok.
-
-
-build_span_tree_without_conversion_test(Config) ->
+build_span_tree_test(Config) ->
     SpanTreesData = proplists:get_value(span_trees_data, Config),
     {TreePatterns, _Links} = generate_span_trees(SpanTreesData, fun randomize_pattern/1),
     [ begin
@@ -179,12 +161,6 @@ randomize_pattern(#{
       events => pick_random_items(Events, 2, false),
       attributes => pick_random_attributes(Attributes)
      }.
-
-
-record_pattern(#{span_id := SpanId}) ->
-    %% span_id is enough to uniquely identify span
-    %% the rest part of the pattern can be ignored
-    #span{span_id = SpanId, _ = '_'}.
 
 
 generate_branches(N) ->

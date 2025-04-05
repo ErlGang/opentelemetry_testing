@@ -19,7 +19,7 @@
          get_span_id_by_name/1,
          get_spans_by_name/1,
          wait_for_span/2,
-         build_span_tree/1, build_span_tree/2,
+         build_span_tree/1,
          convert_span/1,
          match/2]).
 
@@ -69,13 +69,6 @@ wait_for_span(SpanId, Timeout) ->
           {ok, span_map_tree()} | {error, not_found | span_id_is_not_unique}.
 build_span_tree(SpanId) ->
     span_collector:build_span_tree(SpanId, fun convert_span/1).
-
-
--spec build_span_tree(opentelemetry:span_id(), span_collector:span_convertor()) ->
-          {ok, span_collector:span_data_tree()} |
-          {error, not_found | span_id_is_not_unique}.
-build_span_tree(SpanId, ConvertSpanFn) ->
-    span_collector:build_span_tree(SpanId, ConvertSpanFn).
 
 
 -spec convert_span(span_collector:span()) -> span_map().

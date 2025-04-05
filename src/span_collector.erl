@@ -19,16 +19,12 @@
 -type tree(Type) :: {Type, [tree(Type)]}.
 
 -type span() :: #span{}.
--type span_tree() :: tree(span()).
-
 -type span_data() :: term().
--type span_data_tree() :: tree(span_data()).
-
 -type span_convertor() :: fun((span()) -> span_data()).
+-type span_data_tree() :: tree(span_data()).
 
 -export_type([tree/1,
               span/0,
-              span_tree/0,
               span_data/0,
               span_data_tree/0,
               span_convertor/0]).
@@ -44,7 +40,7 @@
          get_span_id_by_name/1,
          get_spans_by_name/1,
          wait_for_span/2,
-         build_span_tree/1, build_span_tree/2]).
+         build_span_tree/2]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
@@ -118,12 +114,6 @@ wait_for_span(SpanId, Timeout) ->
     end.
 
 
--spec build_span_tree(opentelemetry:span_id()) ->
-          {ok, span_tree()} | {error, not_found | span_id_is_not_unique}.
-build_span_tree(SpanId) ->
-    build_span_tree(SpanId, fun take_span_as_is/1).
-
-
 -spec build_span_tree(opentelemetry:span_id(), span_convertor()) ->
           {ok, span_data_tree()} | {error, not_found | span_id_is_not_unique}.
 build_span_tree(SpanId, ConvertSpanFn) ->
@@ -188,9 +178,6 @@ handle_info(Info, State) ->
 
 configure_opentelemetry() ->
     ok = otel_simple_processor:set_exporter(otel_exporter_pid, self()).
-
-
-take_span_as_is(Span) -> Span.
 
 
 build_tree_for_span(Span, ConvertSpanFn) ->
