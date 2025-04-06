@@ -139,24 +139,16 @@ span_conversion_property() ->
 
 recursive_records_conversion_property() ->
     ?FORALL(Term,
-            random_type_gen(4),
+            random_type_gen(6),
             recursive_records_conversion_property(Term)).
 
 
 recursive_records_conversion_property(Term) ->
-    ct:log("Term = ~p", [Term]),
-    ct:log("term_depth(Term) = ~p", [term_depth(Term)]),
     case contains_known_records(Term) of
         false ->
-            ct:log("contains_known_records(Term) == false"),
-            ct:log("contains_known_records(Term, true) == ~p",
-                   [contains_known_records(Term, true)]),
-            ct:log("contains_false_records(Term, true) == ~p",
-                   [contains_false_records(Term, true)]),
             ?assertEqual(Term, span_convertor:records_to_maps(Term)),
             ?assertEqual(Term, span_convertor:maps_to_records(Term));
-        {true, [_ | _]} = Ret ->
-            ct:log("contains_known_records(Term) == ~p", [Ret]),
+        {true, [_ | _]} ->
             ConvertedTerm = span_convertor:records_to_maps(Term),
             ?assertEqual(false, contains_known_records(ConvertedTerm)),
             ?assertEqual(Term, span_convertor:maps_to_records(ConvertedTerm))
@@ -196,27 +188,27 @@ safe_any() ->
            binary(5)]).
 
 
-short_non_empty_list(Type, MaxLength) ->
+small_non_empty_list(Type, MaxLength) ->
     ?LET(Length, integer(1, MaxLength), vector(Length, Type)).
 
 
-short_list(Type, MaxLength) ->
-    frequency([{10, short_non_empty_list(Type, MaxLength)},
+small_list(Type, MaxLength) ->
+    frequency([{10, small_non_empty_list(Type, MaxLength)},
                {1, []}]).
 
 
 small_tuple(Type, MaxSize) ->
-    ?LET(List, short_list(Type, MaxSize), list_to_tuple(List)).
+    ?LET(List, small_list(Type, MaxSize), list_to_tuple(List)).
 
 
 small_map(KeyType, ValueType, MaxSize) ->
     ?LET(PropList,
-         short_list({KeyType, ValueType}, MaxSize),
+         small_list({KeyType, ValueType}, MaxSize),
          maps:from_list(PropList)).
 
 
 nested_list_gen(X) ->
-    short_list(random_type_gen(X), 5).
+    small_list(random_type_gen(X), 5).
 
 
 nested_tuple_gen(X) ->
@@ -255,65 +247,26 @@ clean_record_definitions() ->
 
 
 contains_known_records(Term) ->
-    contains_known_records(Term, false).
-
-
-contains_known_records(Term, SearchInMapKeys) ->
     OtelRecords = span_convertor:get_record_definitions(),
     KnownRecords = maps:keys(OtelRecords),
-    VerifyFN = fun is_known_record/2,
-    contains_records(Term, KnownRecords, SearchInMapKeys, VerifyFN).
-
-
-contains_false_records(Term, SearchInMapKeys) ->
-    OtelRecords = span_convertor:get_record_definitions(),
-    KnownRecords = maps:keys(OtelRecords),
-    VerifyFN = fun is_false_record/2,
-    contains_records(Term, KnownRecords, SearchInMapKeys, VerifyFN).
-
-
-contains_records(Term, KnownRecords, SearchInMapKeys, VerifyFN) ->
-    List = contains_records(0, Term, KnownRecords, SearchInMapKeys, VerifyFN),
-    case [ Item || {Level, _} = Item <- lists:flatten(List), is_integer(Level) ] of
+    List = contains_known_records(Term, KnownRecords),
+    case lists:flatten(List) of
         [] -> false;
         FlatList -> {true, lists:uniq(FlatList)}
     end.
 
 
-term_depth(Term) ->
-    List = contains_records(0, Term, [], true, fun(_X, _Y) -> false end),
-    lists:max([ Level || {leaf, Level} <- lists:flatten(List) ]).
-
-
-contains_records(Level, List, KnownRecords, SearchInMapKeys, VerifyFN)
-  when is_list(List) ->
-    [{leaf, Level}] ++
-    [ contains_records(Level + 1, Elem, KnownRecords, SearchInMapKeys, VerifyFN)
-      || Elem <- List ];
-contains_records(Level, Map, KnownRecords, SearchInMapKeys, VerifyFN)
-  when is_map(Map) ->
-    [{leaf, Level}] ++
-    [ contains_records(Level + 1, Value, KnownRecords, SearchInMapKeys, VerifyFN)
-      || _Key := Value <- Map ] ++
-    [ contains_records(Level + 1, Key, KnownRecords, SearchInMapKeys, VerifyFN)
-      || Key := _Value <- Map, SearchInMapKeys =:= true ];
-contains_records(Level, Tuple, KnownRecords, SearchInMapKeys, VerifyFN)
-  when is_tuple(Tuple) ->
+contains_known_records(List, KnownRecords) when is_list(List) ->
+    [ contains_known_records(Elem, KnownRecords) || Elem <- List ];
+contains_known_records(Map, KnownRecords) when is_map(Map) ->
+    [ contains_known_records(Value, KnownRecords) || _Key := Value <- Map ];
+contains_known_records(Tuple, KnownRecords) when is_tuple(Tuple) ->
     List = tuple_to_list(Tuple),
-    case [ Record || Record <- KnownRecords, VerifyFN(Tuple, Record) ] of
-        [KnownRecord | _] ->
-            OtherNestedRecords =
-                contains_records(Level, List, KnownRecords, SearchInMapKeys, VerifyFN),
-            [{Level, KnownRecord} | OtherNestedRecords];
-        [] -> contains_records(Level, List, KnownRecords, SearchInMapKeys, VerifyFN)
+    case [ Record || Record <- KnownRecords, is_known_record(Tuple, Record) ] of
+        [KnownRecord] -> [KnownRecord | contains_known_records(List, KnownRecords)];
+        [] -> contains_known_records(List, KnownRecords)
     end;
-contains_records(Level, _Term, _KnownRecords, _SearchInMapKeys, _VerifyFN) ->
-    [{leaf, Level}].
-
-
-is_false_record(Tuple, {RecordName, RecordSize}) ->
-    is_record(Tuple, RecordName) andalso
-    not is_record(Tuple, RecordName, RecordSize).
+contains_known_records(_Term, _KnownRecords) -> [].
 
 
 is_known_record(Tuple, {RecordName, RecordSize}) ->

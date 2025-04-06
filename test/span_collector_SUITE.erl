@@ -93,7 +93,6 @@ init_per_group(_Group, Config) ->
 
 
 end_per_group(proper, Config) ->
-    ct:log("'$spans_table' ETS size: ~p", [ets:info(?TABLE, size)]),
     span_collector:reset(),
     Config;
 end_per_group(errors_logging, Config) ->
@@ -171,11 +170,9 @@ build_span_tree_test(_Config) ->
                  span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
 
     %% span tree is building successfully for non-root spans
-    [ begin
-          ct:log("SubTree = ~p", [SubTree]),
-          ?assertEqual({ok, SubTree},
-                       span_collector:build_span_tree(SpanId, fun remove_end_time/1))
-      end || {#span{span_id = SpanId}, _} = SubTree <- element(2, ExpectedSpanTree) ],
+    [ ?assertEqual({ok, SubTree},
+                   span_collector:build_span_tree(SpanId, fun remove_end_time/1))
+      || {#span{span_id = SpanId}, _} = SubTree <- element(2, ExpectedSpanTree) ],
 
     span_collector:reset(),
     ?assertEqual({error, not_found},
@@ -268,7 +265,6 @@ build_span_tree_property() ->
     ?FORALL(SpanTreeInputData,
             span_tree_generator:span_tree_input_data_gen(30, 6, 6),
             begin
-                ct:log("SpanTreeInputData = ~p", [SpanTreeInputData]),
                 {RootSpanId, ExpectedSpanTree} =
                     generate_span_tree_and_wait(SpanTreeInputData),
                 ?assertEqual(
@@ -295,20 +291,12 @@ generate_span_tree(SpanTreeInputData) ->
 
 
 get_span(#{span_id := SpanId}) ->
-    get_span(SpanId, 300).
-
-
-get_span(SpanId, Timeout) when Timeout > 0 ->
     %% 'otel_span_table' is a table used by the otel_span_ets module.
     case ets:lookup(otel_span_table, SpanId) of
         [] ->
-            ct:log("failed to get span ~p", [SpanId]),
-            timer:sleep(50),
-            get_span(SpanId, Timeout - 50);
+            error({failed_to_get_span, SpanId});
         [Span] -> Span
-    end;
-get_span(SpanId, _Timeout) ->
-    error({failed_to_get_span, SpanId}).
+    end.
 
 
 remove_end_time(Span) ->
