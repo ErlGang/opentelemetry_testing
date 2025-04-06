@@ -31,12 +31,13 @@
          unknown_cast_test/1,
          unknown_info_test/1]).
 
--define(NUMBER_OF_REPETITIONS, 100).
+-define(NUMBER_OF_REPETITIONS, 50).
 -define(TABLE,                 '$spans_table').
 -define(GEN_SERVER_NAME,       span_collector).
 
 -define(MILLISECONDS(Action),
         element(1, timer:tc(fun() -> Action end, millisecond))).
+
 -define(assertNoDelay(Action), ?assert(?MILLISECONDS(Action) < 2)).
 -define(assertTimeout(Action, Timeout), ?assert(?MILLISECONDS(Action) >= Timeout)).
 
@@ -66,6 +67,8 @@ groups() ->
                        unknown_info_test]},
      {proper, [parallel],
               [build_span_tree_prop_test,
+               build_span_tree_prop_test,
+               build_span_tree_prop_test,
                build_span_tree_prop_test]}].
 
 
@@ -90,6 +93,7 @@ init_per_group(_Group, Config) ->
 
 
 end_per_group(proper, Config) ->
+    ct:log("'$spans_table' ETS size: ~p", [ets:info(?TABLE, size)]),
     span_collector:reset(),
     Config;
 end_per_group(errors_logging, Config) ->
@@ -106,17 +110,18 @@ end_per_group(_Group, Config) ->
 
 
 reset_test(_Config) ->
-    span_tree({<<"some_span">>, []}),
-    SpanTable1 = ets:tab2list(?TABLE),
-    ?assert(length(SpanTable1) > 0),
+    SpanTreeInputData = {#{name => <<"some_span">>}, []},
+    generate_span_tree_and_wait(SpanTreeInputData),
+    ?assert(ets:info(?TABLE, size) > 0),
     span_collector:reset(),
-    SpanTable2 = ets:tab2list(?TABLE),
-    ?assertEqual(0, length(SpanTable2)).
+    ?assertEqual(0, ets:info(?TABLE, size)).
 
 
 wait_for_span_test(_Config) ->
     Timeout = 300,
-    {#span{span_id = SpanId} = ExpectedSpan, []} = span_tree({<<"some_span">>, []}),
+    SpanTreeInputData = {#{name => <<"some_span">>}, []},
+    {#span{span_id = SpanId} = ExpectedSpan, []} =
+        generate_span_tree(SpanTreeInputData),
     Ret = span_collector:wait_for_span(SpanId, Timeout),
     ?assertMatch({ok, _}, Ret),
     {ok, Span} = Ret,
@@ -137,14 +142,15 @@ wait_for_span_test(_Config) ->
 
 get_spans_by_name_test(_Config) ->
     SpanName = <<"some_span">>,
+    SpanTreeInputData = {#{name => SpanName}, []},
     span_collector:reset(),
     ?assertEqual({error, not_found}, span_collector:get_span_id_by_name(SpanName)),
     ?assertEqual([], span_collector:get_spans_by_name(SpanName)),
-    {#span{span_id = RootSpanId} = ExpectedSpan1, []} = span_tree({SpanName, []}),
+    {RootSpanId, {ExpectedSpan1, _}} = generate_span_tree_and_wait(SpanTreeInputData),
     ?assertEqual({ok, RootSpanId}, span_collector:get_span_id_by_name(SpanName)),
     [Span] = span_collector:get_spans_by_name(SpanName),
     ?assertEqual(ExpectedSpan1, remove_end_time(Span)),
-    {#span{} = ExpectedSpan2, []} = span_tree({SpanName, []}),
+    {_, {ExpectedSpan2, _}} = generate_span_tree_and_wait(SpanTreeInputData),
     ?assertEqual({error, name_is_not_unique},
                  span_collector:get_span_id_by_name(SpanName)),
     Spans = span_collector:get_spans_by_name(SpanName),
@@ -153,11 +159,11 @@ get_spans_by_name_test(_Config) ->
 
 
 build_span_tree_test(_Config) ->
-    SpanTreeInput = {<<"some_span">>,
-                     [{<<"another_span">>,
-                       [{<<"yet_another_span">>, []}]},
-                      {<<"another_span">>, []}]},
-    {RootSpanId, ExpectedSpanTree} = generate_span_tree(SpanTreeInput),
+    SpanTreeInputData = {#{name => <<"some_span">>},
+                         [{#{name => <<"another_span">>},
+                           [{#{name => <<"yet_another_span">>}, []}]},
+                          {#{name => <<"another_span">>}, []}]},
+    {RootSpanId, ExpectedSpanTree} = generate_span_tree_and_wait(SpanTreeInputData),
     ?assertEqual({ok, ExpectedSpanTree},
                  span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
     %% span_collector:build_span_tree/2 returns the same tree if called twice.
@@ -183,13 +189,15 @@ ensure_started_test(_Config) ->
 
 
 span_id_is_not_unique_test(_Config) ->
-    SpanName = <<"some_span">>,
-    {#span{span_id = RootSpanId} = Span, []} = span_tree({SpanName, []}),
+    {RootSpanId, {Span, []}} =
+        generate_span_tree_and_wait({#{name => <<"some_span">>}, []}),
+
     %% since Span has no end time, it is different from the record stored
     %% in span_collector's ETS. because the ETS type is bag, span_collector
     %% will successfully store the Span record to ETS.
     erlang:send(?GEN_SERVER_NAME, {span, Span}),
     timer:sleep(100),
+
     ?assertEqual({error, span_id_is_not_unique},
                  span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
     ?assertEqual({error, span_id_is_not_unique},
@@ -257,39 +265,17 @@ build_span_tree_prop_test(_Config) ->
 
 
 build_span_tree_property() ->
-    ?FORALL(GeneratedSpanTree,
-            span_tree_gen(3),
+    ?FORALL(SpanTreeInputData,
+            span_tree_generator:span_tree_input_data_gen(30, 6, 6),
             begin
-                {RootSpanId, ExpectedSpanTree} = generate_span_tree(GeneratedSpanTree),
-                {ok, SpanTree} = span_collector:build_span_tree(RootSpanId, fun remove_end_time/1),
-                ?assertEqual(ExpectedSpanTree, SpanTree),
+                ct:log("SpanTreeInputData = ~p", [SpanTreeInputData]),
+                {RootSpanId, ExpectedSpanTree} =
+                    generate_span_tree_and_wait(SpanTreeInputData),
+                ?assertEqual(
+                  {ok, ExpectedSpanTree},
+                  span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
                 true
             end).
-
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% generators
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
-span_tree_gen(MaxDepth) ->
-    {span_gen(), span_subtree_gen(MaxDepth)}.
-
-
-span_subtree_gen(MaxDepth) when MaxDepth > 0 ->
-    BasicWeight = 1,
-    DepthWeight = MaxDepth * BasicWeight,
-    ?LAZY(frequency([{DepthWeight, small_list_gen(span_tree_gen(MaxDepth - 1), 3)},
-                     {BasicWeight, []}]));
-span_subtree_gen(_MaxDepth) -> [].
-
-
-small_list_gen(Type, Limit) ->
-    ?LET(Length, integer(1, Limit), vector(Length, Type)).
-
-
-span_gen() ->
-    oneof([<<"some_span">>, <<"another_span">>, <<"yet_another_span">>]).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -297,24 +283,23 @@ span_gen() ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-generate_span_tree(GeneratedSpanTree) ->
-    ExpectedSpanTree = span_tree(GeneratedSpanTree),
+generate_span_tree_and_wait(SpanTreeInputData) ->
+    ExpectedSpanTree = generate_span_tree(SpanTreeInputData),
     {#span{span_id = RootSpanId}, _Children} = ExpectedSpanTree,
     ?assertMatch({ok, _}, span_collector:wait_for_span(RootSpanId, 500)),
     {RootSpanId, ExpectedSpanTree}.
 
 
-span_tree({Span, Children}) ->
-    ?with_span(Span,
-               fun(SpanCtx) ->
-                       Branches = [ span_tree(C) || C <- Children ],
-                       SpanId = SpanCtx#span_ctx.span_id,
-                       timer:sleep(100),
-                       {get_span(SpanId, 300), Branches}
-               end).
+generate_span_tree(SpanTreeInputData) ->
+    span_tree_generator:generate_span_tree(SpanTreeInputData, fun get_span/1).
+
+
+get_span(#{span_id := SpanId}) ->
+    get_span(SpanId, 300).
 
 
 get_span(SpanId, Timeout) when Timeout > 0 ->
+    %% 'otel_span_table' is a table used by the otel_span_ets module.
     case ets:lookup(otel_span_table, SpanId) of
         [] ->
             ct:log("failed to get span ~p", [SpanId]),
