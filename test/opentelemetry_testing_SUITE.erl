@@ -61,7 +61,6 @@ init_per_group(_, Config) ->
 
 
 end_per_group(proper, Config) ->
-    ct:log("'$spans_table' ETS size: ~p", [ets:info('$spans_table', size)]),
     opentelemetry_testing:reset(),
     Config;
 end_per_group(_, Config) ->
@@ -138,7 +137,6 @@ build_span_tree_prop_test(_Config) ->
     ?assertEqual(true,
                  proper:quickcheck(PropTest,
                                    [?NUMBER_OF_REPETITIONS,
-                                    % {on_output, fun ct:pal/2},
                                     noshrink])),
     ok.
 
@@ -164,8 +162,6 @@ build_span_tree_property(SpanTreesInputData) ->
                        opentelemetry_testing:wait_for_span(RootSpanId, 500)),
           {ok, SpanTree} =
               opentelemetry_testing:build_span_tree(RootSpanId),
-          ct:log("SpanTree = ~p", [SpanTree]),
-          ct:log("Pattern = ~p", [Pattern]),
           ?assert(opentelemetry_testing:match(SpanTree, Pattern))
       end || Pattern <- TreePatterns ],
     true.
