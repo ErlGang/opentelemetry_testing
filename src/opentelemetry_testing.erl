@@ -4,10 +4,50 @@
 %% type definitions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--type span_map() :: map().
+-type attributes_map() :: #{opentelemetry:attribute_key() => opentelemetry:attribute_value()}.
+
+-type event() :: #{
+                   name := opentelemetry:event_name(),
+                   attributes := attributes_map(),
+                   term() => term()
+                  }.
+
+-type link() :: #{
+                  trace_id := opentelemetry:trace_id(),
+                  span_id := opentelemetry:span_id(),
+                  attributes := attributes_map(),
+                  term() => term()
+                 }.
+
+-type status() :: undefined |
+                  #{
+                    code := opentelemetry:status_code(),
+                    message := unicode:unicode_binary()
+                   }.
+
+-type span_map() :: #{
+                      trace_id := opentelemetry:trace_id(),
+                      span_id := opentelemetry:span_id(),
+                      parent_span_id := opentelemetry:span_id() | undefined,
+                      name := opentelemetry:span_name(),
+                      kind := opentelemetry:span_kind(),
+                      status := status(),
+                      attributes := attributes_map(),
+                      events := [event()],
+                      links := [link()],
+                      start_time := opentelemetry:timestamp(),
+                      end_time := opentelemetry:timestamp(),
+                      term() => term()
+                     }.
+
 -type span_map_tree() :: span_collector:tree(span_map()).
 
--export_type([span_map/0, span_map_tree/0]).
+-export_type([attributes_map/0,
+              event/0,
+              link/0,
+              status/0,
+              span_map/0,
+              span_map_tree/0]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% exported functions

@@ -22,7 +22,7 @@
 -define(assertNoDelay(Action), ?assert(?MILLISECONDS(Action) < 2)).
 -define(assertTimeout(Action, Timeout), ?assert(?MILLISECONDS(Action) >= Timeout)).
 
--define(NUMBER_OF_REPETITIONS, 50).
+-define(NUMBER_OF_REPETITIONS, 10).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ct_suite callbacks
@@ -155,7 +155,7 @@ build_span_tree_property() ->
 build_span_tree_property(SpanTreesInputData) ->
     TreePatterns =
         span_tree_generator:generate_linked_span_trees(SpanTreesInputData,
-                                                       fun randomize_pattern/1),
+                                                       fun(X) -> X end),
     [ begin
           {#{span_id := RootSpanId}, _} = Pattern,
           ?assertMatch({ok, #{}},

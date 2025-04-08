@@ -27,18 +27,58 @@ span_tree_input_data_gen(NumberOfSpans, MaxBranchWidth, MaxBranchDepth) ->
 
 
 span_input_data_gen() ->
-    ?LET({Name, Attributes, Events, Status},
-         {name_gen(), attributes_gen(), events_gen(), status_gen()},
-         #{name => Name, attributes => Attributes, events => Events, status => Status}).
+    ?LET({Name, Kind, Status, Attributes, Events},
+         {name_gen(), kind_gen(), status_gen(), attributes_gen(), events_gen()},
+         #{
+           name => Name,
+           kind => Kind,
+           attributes => Attributes,
+           events => Events,
+           status => Status
+          }).
 
 
 name_gen() ->
-    non_empty(binary()).
+    ?LET(X, not_empty_gen(opentelemetry:span_name()), X).
+
+
+not_empty_gen(Type) ->
+    ?SUCHTHAT(Name, Type, Name =/= <<>> andalso Name =/= '' andalso Name =/= '_').
+
+
+kind_gen() ->
+    ?LET(X, opentelemetry:span_kind(), X).
+
+
+status_gen() ->
+    oneof([undefined,
+           status_map_gen()]).
+
+
+status_map_gen() ->
+    ?LET({StatusCode, Message},
+         {opentelemetry:status_code(), unicode:unicode_binary()},
+         begin
+             case StatusCode of
+                 ?OTEL_STATUS_ERROR ->
+                     #{code => StatusCode, message => Message};
+                 _ ->
+                     %% the message is ignored and reset to <<"">>
+                     %% for any status except ?OTEL_STATUS_ERROR
+                     #{code => StatusCode, message => <<"">>}
+             end
+         end).
 
 
 attributes_gen() ->
-    map(oneof([atom(), name_gen()]),
-        binary()).
+    ?LET(PropList,
+         ?LET(Length, integer(0, 5), vector(Length, attribute_gen())),
+         %% ensure that invalid attributes are not added
+         otel_attributes:process_attributes(PropList)).
+
+
+attribute_gen() ->
+    ?LET(X, {name_gen(), opentelemetry:attribute_value()}, X).
 
 
 events_gen() ->
@@ -49,13 +89,6 @@ event_gen() ->
     ?LET({Name, Attributes},
          {name_gen(), attributes_gen()},
          #{name => Name, attributes => Attributes}).
-
-
-status_gen() ->
-    oneof([#{code => ?OTEL_STATUS_ERROR, message => <<"any error">>},
-           %% message is ignored for ?OTEL_STATUS_OK
-           #{code => ?OTEL_STATUS_OK, message => <<"">>},
-           undefined]).
 
 
 generate_span_tree_input_data(Spans, MaxBranchWidth, MaxBranchDepth) ->
@@ -126,23 +159,34 @@ generate_span_tree(SpanTree, ConvertPatternFn) ->
 
 generate_span_tree({#{name := Name} = Span, Children}, Links, ConvertPatternFn) ->
     assert_span_input_data(Span),
-    SpanLinks = pick_random_items(Links, 4, true),
+    ParentSpanId = get_current_span_id(),
+    Kind = maps:get(kind, Span, ?SPAN_KIND_INTERNAL),
+    Status = maps:get(status, Span, undefined),
     Attributes = maps:get(attributes, Span, #{}),
     Events = maps:get(events, Span, []),
-    Status = maps:get(status, Span, undefined),
-    ParentSpanId = get_current_span_id(),
+    SpanLinks = pick_random_items(Links, 4, true),
     ?with_span(
       Name,
-      #{links => SpanLinks, attributes => Attributes},
+      #{kind => Kind, attributes => Attributes, links => SpanLinks},
       fun(SpanCtx) ->
+              ct:log("SpanCtx == ~p", [SpanCtx]),
+              ct:log("Span == ~p", [Span]),
               BranchesAndNewLinks = [ generate_span_tree(C, Links, ConvertPatternFn)
                                       || C <- Children ],
               Branches = [ Branch || {Branch, _} <- BranchesAndNewLinks ],
               NewLinks = lists:append([ Link || {_, Link} <- BranchesAndNewLinks ]),
               SpanId = SpanCtx#span_ctx.span_id,
               TraceId = SpanCtx#span_ctx.trace_id,
-              SpanLinksPattern = [ link_to_pattern(L) || L <- SpanLinks ],
-              ?add_events(Events),
+
+              %% the links are added to the span in reverse order, but we want to keep
+              %% the order of the links in the pattern the same as in the span data.
+              SpanLinksPattern =
+                  [ link_to_pattern(L) || L <- lists:reverse(SpanLinks) ],
+
+              %% the events are added to the span in reverse order, but we want to keep
+              %% the order of the events in the pattern the same as in the span data.
+              ?add_events(lists:reverse(Events)),
+
               set_status(Status),
               CompleteSpanPattern = Span#{
                                       span_id => SpanId,
@@ -160,7 +204,7 @@ generate_span_tree({#{name := Name} = Span, Children}, Links, ConvertPatternFn) 
 
 assert_span_input_data(Span) ->
     Keys = maps:keys(Span),
-    SupportedKeys = [name, status, attributes, events],
+    SupportedKeys = [name, kind, status, attributes, events],
     case Keys -- SupportedKeys of
         [] -> ok;
         UnsupportedKeys -> error(span_input_data_keys, UnsupportedKeys)
