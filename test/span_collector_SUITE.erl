@@ -3,7 +3,6 @@
 
 -include_lib("proper/include/proper.hrl").
 -include_lib("stdlib/include/assert.hrl").
--include_lib("kernel/include/logger.hrl").
 -include_lib("test_logs/include/test_logs.hrl").
 
 %% otel_tracer.hrl defines tracing marcos (e.g. ?with_span())
@@ -42,7 +41,6 @@
 -define(assertNoDelay(Action), ?assert(?MILLISECONDS(Action) < 2)).
 -define(assertTimeout(Action, Timeout), ?assert(?MILLISECONDS(Action) >= Timeout)).
 
--define(DUMP_RAND_SEED(Msg), dump_rand_seed(?FUNCTION_NAME, ?FUNCTION_ARITY, Msg)).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ct_suite callbacks
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -85,7 +83,7 @@ end_per_suite(Config) ->
 
 init_per_group(proper, Config) ->
     span_collector:reset(),
-    [{seed, rand:seed_s(default)}, Config];
+    Config;
 init_per_group(errors_logging, Config) ->
     test_logs:add_handler(),
     span_collector:reset(),
@@ -275,27 +273,46 @@ unknown_info_test(_Config) ->
     ?assertLogEvent({"unexpected info message:" ++ _, _}, error, _).
 
 
-build_span_tree_prop_test(Config) ->
-    % ?DUMP_RAND_SEED("before running prop test"),
+build_span_tree_prop_test(_Config) ->
 
-    % timer:sleep(rand:uniform(500)),
-    % ?DUMP_RAND_SEED("after rand:uniform/1"),
-
-    % erlang:erase(rand_seed),
-    % ?DUMP_RAND_SEED("after erlang:erase(rand_seed)"),
-
-    % rand:seed(default),
-    % ?DUMP_RAND_SEED("after seeding"),
-
-    Seed = proplists:get_value(seed, Config),
-    put(rand_seed, Seed),
-    ?DUMP_RAND_SEED("after put(rand_seed, Seed)"),
+    %% this test is running in parallel multiple times (see CT 'proper' group
+    %% definition) and it was occasionally failing for unexpected reasons.
+    %% after spending a day debugging and reading OpenTelemetry and PropEr code,
+    %% the real root cause was found. Investigation showed that:
+    %%   * PropEr conditionally (if there's no random generator state stored in
+    %%     a process dictionary) seeds the random number generator.
+    %%   * this conditional seeding is based solely on the value returned by the
+    %%     os:timestamp/0 function, for more details see:
+    %%     - the implementation of the proper_arith:rand_restart/1 function.
+    %%     - the definition of the #opts{} record in the 'proper' module.
+    %%     - the implementation of the global_state_init/1 function in the
+    %%       'proper' module and its usage
+    %%   * If the os:timestamp/0 function returns identical values ​​in two or more
+    %%     parallel build_span_tree_prop_test/1 tests, this results in identical input
+    %%     generation for those tests
+    %%   * but identical test input does not in itself lead to a race condition.
+    %%     the real problem is that the random generator seed is still identical
+    %%     in those processes, so open telemetry generates identical trace_id and
+    %%     span_id for spans (see the 'otel_id_generator' module and its usage).
+    %%
+    %% the simplest solution would be to add a random delay at the beginning of the
+    %% build_span_tree_prop_test/1 test, e.g. timer:sleep(rand:uniform(500)). however,
+    %% calling random:uniform/1 initializes the random generator state for the default
+    %% algorithm and stores it in a process dictionary. by default, the 'rand' module
+    %% generates a seed value based on the process ID (see the default_seed/0 function
+    %% in the 'rand' module), so it is guaranteed to be unique for each process. this
+    %% solves the issue altogether as the seeding of the random number generator is
+    %% conditional in the proper_arith:rand_restart/1 function.
+    %%
+    %% So instead of introducing a random delay, let's just seed the default random
+    %% number generator. since this behavior of PropEr is not documented, it's also
+    %% a good idea to re-seed the default random number generator at the beginning
+    %% of the build_span_tree_property/1 function
+    rand:seed(default),
 
     PropTest = build_span_tree_property(),
     ?assertEqual(true,
                  proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
-
-    ?DUMP_RAND_SEED("after running prop test"),
     ok.
 
 
@@ -311,26 +328,22 @@ build_span_tree_property() ->
 
 
 build_span_tree_property(SpanTreeInputData) ->
-    ?DUMP_RAND_SEED("before generating span tree"),
-    % ct:log("SpanTreeInputData = ~p", [SpanTreeInputData]),
+    %% see comments in the build_span_tree_prop_test/1 testcase
+    rand:seed(default),
 
     {#span{trace_id = TraceId, span_id = SpanId}, _} = ExpectedSpanTree =
         generate_span_tree_and_wait(SpanTreeInputData),
+
     ?assertEqual(
       {ok, ExpectedSpanTree},
       span_collector:build_span_tree(TraceId, SpanId, fun remove_end_time/1)),
+
     true.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% local functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-
-dump_rand_seed(Function, Arity, Msg) ->
-    ct:log("[~p] ~p/~p : ~p", [self(), Function, Arity, Msg]),
-    % ct:log("process_dictionary = ~p", [erlang:process_info(self(), dictionary)]),
-    ct:log("rand_seed = ~p", [erlang:get(rand_seed)]).
 
 
 generate_span_tree_and_wait(SpanTreeInputData) ->
@@ -344,14 +357,11 @@ generate_span_tree(SpanTreeInputData) ->
     span_tree_generator:generate_span_tree(SpanTreeInputData, fun get_span/1).
 
 
-get_span(#{trace_id := TraceId, span_id := SpanId}) ->
+get_span(#{span_id := SpanId}) ->
     %% 'otel_span_table' is a table used by the otel_span_ets module.
     case ets:lookup(otel_span_table, SpanId) of
         [] ->
-            ?LOG_ERROR("failed to get span: ~p", [SpanId]),
-            %% fake the record, so build_span_tree_property/1 can report a bit
-            %% more information (trace_id and span_id fields are mandatory)
-            #span{trace_id = TraceId, span_id = SpanId};
+            error({failed_to_get_span, SpanId});
         [Span] -> Span
     end.
 
