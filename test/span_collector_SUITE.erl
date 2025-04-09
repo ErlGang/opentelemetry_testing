@@ -3,6 +3,7 @@
 
 -include_lib("proper/include/proper.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("kernel/include/logger.hrl").
 -include_lib("test_logs/include/test_logs.hrl").
 
 %% otel_tracer.hrl defines tracing marcos (e.g. ?with_span())
@@ -41,6 +42,7 @@
 -define(assertNoDelay(Action), ?assert(?MILLISECONDS(Action) < 2)).
 -define(assertTimeout(Action, Timeout), ?assert(?MILLISECONDS(Action) >= Timeout)).
 
+-define(DUMP_RAND_SEED(Msg), dump_rand_seed(?FUNCTION_NAME, ?FUNCTION_ARITY, Msg)).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ct_suite callbacks
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -83,7 +85,7 @@ end_per_suite(Config) ->
 
 init_per_group(proper, Config) ->
     span_collector:reset(),
-    Config;
+    [{seed, rand:seed_s(default)}, Config];
 init_per_group(errors_logging, Config) ->
     test_logs:add_handler(),
     span_collector:reset(),
@@ -273,10 +275,27 @@ unknown_info_test(_Config) ->
     ?assertLogEvent({"unexpected info message:" ++ _, _}, error, _).
 
 
-build_span_tree_prop_test(_Config) ->
+build_span_tree_prop_test(Config) ->
+    % ?DUMP_RAND_SEED("before running prop test"),
+
+    % timer:sleep(rand:uniform(500)),
+    % ?DUMP_RAND_SEED("after rand:uniform/1"),
+
+    % erlang:erase(rand_seed),
+    % ?DUMP_RAND_SEED("after erlang:erase(rand_seed)"),
+
+    % rand:seed(default),
+    % ?DUMP_RAND_SEED("after seeding"),
+
+    Seed = proplists:get_value(seed, Config),
+    put(rand_seed, Seed),
+    ?DUMP_RAND_SEED("after put(rand_seed, Seed)"),
+
     PropTest = build_span_tree_property(),
     ?assertEqual(true,
                  proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
+
+    ?DUMP_RAND_SEED("after running prop test"),
     ok.
 
 
@@ -292,6 +311,9 @@ build_span_tree_property() ->
 
 
 build_span_tree_property(SpanTreeInputData) ->
+    ?DUMP_RAND_SEED("before generating span tree"),
+    % ct:log("SpanTreeInputData = ~p", [SpanTreeInputData]),
+
     {#span{trace_id = TraceId, span_id = SpanId}, _} = ExpectedSpanTree =
         generate_span_tree_and_wait(SpanTreeInputData),
     ?assertEqual(
@@ -305,6 +327,12 @@ build_span_tree_property(SpanTreeInputData) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
+dump_rand_seed(Function, Arity, Msg) ->
+    ct:log("[~p] ~p/~p : ~p", [self(), Function, Arity, Msg]),
+    % ct:log("process_dictionary = ~p", [erlang:process_info(self(), dictionary)]),
+    ct:log("rand_seed = ~p", [erlang:get(rand_seed)]).
+
+
 generate_span_tree_and_wait(SpanTreeInputData) ->
     ExpectedSpanTree = generate_span_tree(SpanTreeInputData),
     {#span{trace_id = TraceId, span_id = SpanId}, _Children} = ExpectedSpanTree,
@@ -316,11 +344,14 @@ generate_span_tree(SpanTreeInputData) ->
     span_tree_generator:generate_span_tree(SpanTreeInputData, fun get_span/1).
 
 
-get_span(#{span_id := SpanId}) ->
+get_span(#{trace_id := TraceId, span_id := SpanId}) ->
     %% 'otel_span_table' is a table used by the otel_span_ets module.
     case ets:lookup(otel_span_table, SpanId) of
         [] ->
-            error({failed_to_get_span, SpanId});
+            ?LOG_ERROR("failed to get span: ~p", [SpanId]),
+            %% fake the record, so build_span_tree_property/1 can report a bit
+            %% more information (trace_id and span_id fields are mandatory)
+            #span{trace_id = TraceId, span_id = SpanId};
         [Span] -> Span
     end.
 
