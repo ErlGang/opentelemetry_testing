@@ -23,7 +23,7 @@
          ensure_started_test/1,
          build_span_tree_test/1,
          get_spans_by_name_test/1,
-         span_id_is_not_unique_test/1,
+         span_is_not_unique_test/1,
          wait_for_span_test/1,
          reset_test/1,
          failing_to_start_test/1,
@@ -58,10 +58,10 @@ groups() ->
               reset_test,
               wait_for_span_test,
               get_spans_by_name_test,
-              build_span_tree_test,
-              span_id_is_not_unique_test]},
+              build_span_tree_test]},
      {errors_logging, [],
                       [failing_to_start_test,
+                       span_is_not_unique_test,
                        unknown_call_test,
                        unknown_cast_test,
                        unknown_info_test]},
@@ -109,9 +109,10 @@ end_per_group(_Group, Config) ->
 
 
 reset_test(_Config) ->
+    Size = ets:info(?TABLE, size),
     SpanTreeInputData = {#{name => <<"some_span">>}, []},
     generate_span_tree_and_wait(SpanTreeInputData),
-    ?assert(ets:info(?TABLE, size) > 0),
+    ?assertEqual(Size + 1, ets:info(?TABLE, size)),
     span_collector:reset(),
     ?assertEqual(0, ets:info(?TABLE, size)).
 
@@ -119,39 +120,46 @@ reset_test(_Config) ->
 wait_for_span_test(_Config) ->
     Timeout = 300,
     SpanTreeInputData = {#{name => <<"some_span">>}, []},
-    {#span{span_id = SpanId} = ExpectedSpan, []} =
+    {#span{trace_id = TraceId, span_id = SpanId} = ExpectedSpan, []} =
         generate_span_tree(SpanTreeInputData),
-    Ret = span_collector:wait_for_span(SpanId, Timeout),
+    Ret = span_collector:wait_for_span(TraceId, SpanId, Timeout),
     ?assertMatch({ok, _}, Ret),
     {ok, Span} = Ret,
     ?assertEqual(ExpectedSpan, remove_end_time(Span)),
-    %% subsequent calls to span_collector:wait_for_span/2 must
+    %% subsequent calls to span_collector:wait_for_span/3 must
     %% immediately return the same span
-    ?assertNoDelay(?assertEqual(Ret, span_collector:wait_for_span(SpanId, Timeout))),
-    ?assertNoDelay(?assertEqual(Ret, span_collector:wait_for_span(SpanId, 0))),
+    ?assertNoDelay(
+      ?assertEqual(Ret,
+                   span_collector:wait_for_span(TraceId, SpanId, Timeout))),
+    ?assertNoDelay(
+      ?assertEqual(Ret,
+                   span_collector:wait_for_span(TraceId, SpanId, 0))),
 
     %% check that timeout works as expected
     span_collector:reset(),
-    ?assertTimeout(?assertEqual({error, timeout},
-                                span_collector:wait_for_span(SpanId, Timeout)),
+    ?assertTimeout(?assertEqual(
+                     {error, timeout},
+                     span_collector:wait_for_span(TraceId, SpanId, Timeout)),
                    Timeout),
     ?assertNoDelay(?assertEqual({error, timeout},
-                                span_collector:wait_for_span(SpanId, 0))).
+                                span_collector:wait_for_span(TraceId, SpanId, 0))).
 
 
 get_spans_by_name_test(_Config) ->
     SpanName = <<"some_span">>,
     SpanTreeInputData = {#{name => SpanName}, []},
     span_collector:reset(),
-    ?assertEqual({error, not_found}, span_collector:get_span_id_by_name(SpanName)),
+    ?assertEqual({error, not_found}, span_collector:get_span_ids_by_name(SpanName)),
     ?assertEqual([], span_collector:get_spans_by_name(SpanName)),
-    {RootSpanId, {ExpectedSpan1, _}} = generate_span_tree_and_wait(SpanTreeInputData),
-    ?assertEqual({ok, RootSpanId}, span_collector:get_span_id_by_name(SpanName)),
+    {#span{trace_id = TraceId, span_id = SpanId} = ExpectedSpan1, _} =
+        generate_span_tree_and_wait(SpanTreeInputData),
+    ?assertEqual({ok, {TraceId, SpanId}},
+                 span_collector:get_span_ids_by_name(SpanName)),
     [Span] = span_collector:get_spans_by_name(SpanName),
     ?assertEqual(ExpectedSpan1, remove_end_time(Span)),
-    {_, {ExpectedSpan2, _}} = generate_span_tree_and_wait(SpanTreeInputData),
-    ?assertEqual({error, name_is_not_unique},
-                 span_collector:get_span_id_by_name(SpanName)),
+    {ExpectedSpan2, _} = generate_span_tree_and_wait(SpanTreeInputData),
+    ?assertEqual({error, span_is_not_unique},
+                 span_collector:get_span_ids_by_name(SpanName)),
     Spans = span_collector:get_spans_by_name(SpanName),
     ?assertEqual(lists:sort([ExpectedSpan1, ExpectedSpan2]),
                  lists:sort([ remove_end_time(S) || S <- Spans ])).
@@ -162,21 +170,26 @@ build_span_tree_test(_Config) ->
                          [{#{name => <<"another_span">>},
                            [{#{name => <<"yet_another_span">>}, []}]},
                           {#{name => <<"another_span">>}, []}]},
-    {RootSpanId, ExpectedSpanTree} = generate_span_tree_and_wait(SpanTreeInputData),
-    ?assertEqual({ok, ExpectedSpanTree},
-                 span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
+    {#span{trace_id = TraceId, span_id = RootSpanId}, _} = ExpectedSpanTree =
+        generate_span_tree_and_wait(SpanTreeInputData),
+    ?assertEqual(
+      {ok, ExpectedSpanTree},
+      span_collector:build_span_tree(TraceId, RootSpanId, fun remove_end_time/1)),
     %% span_collector:build_span_tree/2 returns the same tree if called twice.
-    ?assertEqual({ok, ExpectedSpanTree},
-                 span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
+    ?assertEqual(
+      {ok, ExpectedSpanTree},
+      span_collector:build_span_tree(TraceId, RootSpanId, fun remove_end_time/1)),
 
     %% span tree is building successfully for non-root spans
-    [ ?assertEqual({ok, SubTree},
-                   span_collector:build_span_tree(SpanId, fun remove_end_time/1))
+    [ ?assertEqual(
+        {ok, SubTree},
+        span_collector:build_span_tree(TraceId, SpanId, fun remove_end_time/1))
       || {#span{span_id = SpanId}, _} = SubTree <- element(2, ExpectedSpanTree) ],
 
     span_collector:reset(),
-    ?assertEqual({error, not_found},
-                 span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)).
+    ?assertEqual(
+      {error, not_found},
+      span_collector:build_span_tree(TraceId, RootSpanId, fun remove_end_time/1)).
 
 
 ensure_started_test(_Config) ->
@@ -185,8 +198,10 @@ ensure_started_test(_Config) ->
     ?assertEqual(ok, span_collector:ensure_started()).
 
 
-span_id_is_not_unique_test(_Config) ->
-    {RootSpanId, {Span, []}} =
+span_is_not_unique_test(_Config) ->
+    test_logs:set_pid(),
+    span_collector:ensure_started(),
+    {#span{trace_id = TraceId, span_id = SpanId} = Span, []} =
         generate_span_tree_and_wait({#{name => <<"some_span">>}, []}),
 
     %% since Span has no end time, it is different from the record stored
@@ -195,10 +210,18 @@ span_id_is_not_unique_test(_Config) ->
     erlang:send(?GEN_SERVER_NAME, {span, Span}),
     timer:sleep(100),
 
-    ?assertEqual({error, span_id_is_not_unique},
-                 span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
-    ?assertEqual({error, span_id_is_not_unique},
-                 span_collector:wait_for_span(RootSpanId, 0)).
+    ?assertEqual(
+      {error, span_is_not_unique},
+      span_collector:build_span_tree(TraceId, SpanId, fun remove_end_time/1)),
+    ?assertLogEvent({"multiple spans matched:" ++ _, _},
+                    error,
+                    #{mfa := {span_collector, build_span_tree, 3}}),
+
+    ?assertEqual({error, span_is_not_unique},
+                 span_collector:wait_for_span(TraceId, SpanId, 0)),
+    ?assertLogEvent({"multiple spans matched:" ++ _, _},
+                    error,
+                    #{mfa := {span_collector, wait_for_span, 3}}).
 
 
 failing_to_start_test(_Config) ->
@@ -252,7 +275,8 @@ unknown_info_test(_Config) ->
 
 build_span_tree_prop_test(_Config) ->
     PropTest = build_span_tree_property(),
-    ?assertEqual(true, proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
+    ?assertEqual(true,
+                 proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
     ok.
 
 
@@ -264,14 +288,16 @@ build_span_tree_prop_test(_Config) ->
 build_span_tree_property() ->
     ?FORALL(SpanTreeInputData,
             span_tree_generator:span_tree_input_data_gen(30, 6, 6),
-            begin
-                {RootSpanId, ExpectedSpanTree} =
-                    generate_span_tree_and_wait(SpanTreeInputData),
-                ?assertEqual(
-                  {ok, ExpectedSpanTree},
-                  span_collector:build_span_tree(RootSpanId, fun remove_end_time/1)),
-                true
-            end).
+            build_span_tree_property(SpanTreeInputData)).
+
+
+build_span_tree_property(SpanTreeInputData) ->
+    {#span{trace_id = TraceId, span_id = SpanId}, _} = ExpectedSpanTree =
+        generate_span_tree_and_wait(SpanTreeInputData),
+    ?assertEqual(
+      {ok, ExpectedSpanTree},
+      span_collector:build_span_tree(TraceId, SpanId, fun remove_end_time/1)),
+    true.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -281,9 +307,9 @@ build_span_tree_property() ->
 
 generate_span_tree_and_wait(SpanTreeInputData) ->
     ExpectedSpanTree = generate_span_tree(SpanTreeInputData),
-    {#span{span_id = RootSpanId}, _Children} = ExpectedSpanTree,
-    ?assertMatch({ok, _}, span_collector:wait_for_span(RootSpanId, 500)),
-    {RootSpanId, ExpectedSpanTree}.
+    {#span{trace_id = TraceId, span_id = SpanId}, _Children} = ExpectedSpanTree,
+    ?assertMatch({ok, _}, span_collector:wait_for_span(TraceId, SpanId, 500)),
+    ExpectedSpanTree.
 
 
 generate_span_tree(SpanTreeInputData) ->

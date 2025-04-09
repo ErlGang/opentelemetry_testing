@@ -37,10 +37,10 @@
 -export([ensure_started/0,
          stop/0,
          reset/0,
-         get_span_id_by_name/1,
+         get_span_ids_by_name/1,
          get_spans_by_name/1,
-         wait_for_span/2,
-         build_span_tree/2]).
+         wait_for_span/3,
+         build_span_tree/3]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2]).
@@ -74,16 +74,17 @@ reset() ->
     gen_server:call(?MODULE, reset).
 
 
--spec get_span_id_by_name(opentelemetry:span_name()) ->
-          {ok, opentelemetry:span_id()} | {error, not_found | name_is_not_unique}.
-get_span_id_by_name(Name) ->
-    %% span_id is used as an ETS key (ETS of type set) at otel_span_ets,
-    %% so it must be sufficient to uniquely identify the span.
-    MatchPattern = ?SPAN_PATTERN([{#span.name, Name}, {#span.span_id, '$1'}]),
+-spec get_span_ids_by_name(opentelemetry:span_name()) ->
+          {ok, {opentelemetry:trace_id(), opentelemetry:span_id()}} |
+          {error, not_found | span_is_not_unique}.
+get_span_ids_by_name(Name) ->
+    MatchPattern = ?SPAN_PATTERN([{#span.name, Name},
+                                  {#span.trace_id, '$1'},
+                                  {#span.span_id, '$2'}]),
     case ets:match(?TABLE, MatchPattern) of
-        [[SpandId]] -> {ok, SpandId};
+        [[TraceId, SpandId]] -> {ok, {TraceId, SpandId}};
         [] -> {error, not_found};
-        [_, _ | _] -> {error, name_is_not_unique}
+        [_, _ | _] -> {error, span_is_not_unique}
     end.
 
 
@@ -94,40 +95,44 @@ get_spans_by_name(Name) ->
     ets:match_object(?TABLE, MatchPattern).
 
 
--spec wait_for_span(opentelemetry:span_id(), non_neg_integer()) ->
-          {ok, span()} | {error, timeout | span_id_is_not_unique}.
-wait_for_span(_SpanId, Timeout) when Timeout < 0 ->
+-spec wait_for_span(opentelemetry:trace_id(),
+                    opentelemetry:span_id(),
+                    non_neg_integer()) ->
+          {ok, span()} | {error, timeout | span_is_not_unique}.
+wait_for_span(_TraceId, _SpanId, Timeout) when Timeout < 0 ->
     {error, timeout};
-wait_for_span(SpanId, Timeout) ->
+wait_for_span(TraceId, SpanId, Timeout) ->
     RetryAfter = 150,
-    MatchPattern = ?SPAN_PATTERN([{#span.span_id, SpanId}]),
+    MatchPattern = ?SPAN_PATTERN([{#span.trace_id, TraceId},
+                                  {#span.span_id, SpanId}]),
     case ets:match_object(?TABLE, MatchPattern) of
         [Span] -> {ok, Span};
         [] ->
             Timeout > 0 andalso timer:sleep(RetryAfter),
-            wait_for_span(SpanId, Timeout - RetryAfter);
-        [_, _ | _] ->
-            %% this should never happen. span_id is used as an ETS key
-            %% (ETS of type set) at otel_span_ets, so it must be enough
-            %% to uniquely identify the span.
-            {error, span_id_is_not_unique}
+            wait_for_span(TraceId, SpanId, Timeout - RetryAfter);
+        [_, _ | _] = Spans ->
+            %% this should never happen.
+            ?LOG_ERROR("multiple spans matched: ~p", [Spans]),
+            {error, span_is_not_unique}
     end.
 
 
--spec build_span_tree(opentelemetry:span_id(), span_convertor()) ->
-          {ok, span_data_tree()} | {error, not_found | span_id_is_not_unique}.
-build_span_tree(SpanId, ConvertSpanFn) ->
-    MatchPattern = ?SPAN_PATTERN([{#span.span_id, SpanId}]),
+-spec build_span_tree(opentelemetry:trace_id(),
+                      opentelemetry:span_id(),
+                      span_convertor()) ->
+          {ok, span_data_tree()} | {error, not_found | span_is_not_unique}.
+build_span_tree(TraceId, SpanId, ConvertSpanFn) ->
+    MatchPattern = ?SPAN_PATTERN([{#span.trace_id, TraceId},
+                                  {#span.span_id, SpanId}]),
     case ets:match_object(?TABLE, MatchPattern) of
         [Span] ->
             {ok, build_tree_for_span(Span, ConvertSpanFn)};
         [] ->
             {error, not_found};
-        [_, _ | _] ->
-            %% this should never happen. span_id is used as an ETS key
-            %% (ETS of type set) at otel_span_ets, so it must be enough
-            %% to uniquely identify the span.
-            {error, span_id_is_not_unique}
+        [_, _ | _] = Spans ->
+            %% this should never happen.
+            ?LOG_ERROR("multiple spans matched: ~p", [Spans]),
+            {error, span_is_not_unique}
     end.
 
 

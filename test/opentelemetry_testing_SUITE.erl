@@ -83,23 +83,25 @@ wait_for_span_test(_Config) ->
     %% generate a tree with only one root span
     SpanTreeInputData = single_span_tree(),
     Timeout = 300,
-    {#{span_id := SpanId} = SpanPattern, []} =
+    {#{trace_id := TraceId, span_id := SpanId} = SpanPattern, []} =
         generate_span_tree(SpanTreeInputData),
-    Ret = opentelemetry_testing:wait_for_span(SpanId, Timeout),
-    ?assertMatch({ok, #{span_id := SpanId}}, Ret),
+    Ret = opentelemetry_testing:wait_for_span(TraceId, SpanId, Timeout),
+    ?assertMatch({ok, #{trace_id := TraceId, span_id := SpanId}}, Ret),
     {ok, Span} = Ret,
-    %% ensure that span is converted by opentelemetry_testing:wait_for_span/1
+    %% ensure that span is converted by opentelemetry_testing:wait_for_span/3
     ?assert(opentelemetry_testing:match(Span, SpanPattern)),
-    %% ensure that opentelemetry_testing:wait_for_span/1 returns immediately
+    %% ensure that opentelemetry_testing:wait_for_span/3 returns immediately
     %% if Span is already reported
     ?assertNoDelay(
-      ?assertEqual(Ret, opentelemetry_testing:wait_for_span(SpanId, Timeout))),
+      ?assertEqual(Ret,
+                   opentelemetry_testing:wait_for_span(TraceId, SpanId, Timeout))),
 
     opentelemetry_testing:reset(),
-    %% ensure that opentelemetry_testing:wait_for_span/1 returns after a Timeout
+    %% ensure that opentelemetry_testing:wait_for_span/3 returns after a Timeout
     %% if there's no span with such SpanId
-    ?assertTimeout(?assertEqual({error, timeout},
-                                opentelemetry_testing:wait_for_span(SpanId, Timeout)),
+    ?assertTimeout(?assertEqual(
+                     {error, timeout},
+                     opentelemetry_testing:wait_for_span(TraceId, SpanId, Timeout)),
                    Timeout).
 
 
@@ -108,26 +110,29 @@ get_spans_by_name_test(_Config) ->
     %% generate one tree with only one span
     SpanTreeInputData = single_span_tree(),
 
-    {#{name := Name, span_id := SpanId1} = SpanPattern1, []} =
+    {#{name := Name, trace_id := TraceId1, span_id := SpanId1} = SpanPattern1, []} =
         generate_span_tree(SpanTreeInputData),
-    ?assertMatch({ok, #{}}, opentelemetry_testing:wait_for_span(SpanId1, 300)),
-    ?assertEqual({ok, SpanId1}, opentelemetry_testing:get_span_id_by_name(Name)),
+    ?assertMatch({ok, #{}},
+                 opentelemetry_testing:wait_for_span(TraceId1, SpanId1, 300)),
+    ?assertEqual({ok, {TraceId1, SpanId1}},
+                 opentelemetry_testing:get_span_ids_by_name(Name)),
     Spans1 = opentelemetry_testing:get_spans_by_name(Name),
     %% ensure that spans are converted by opentelemetry_testing:get_spans_by_name/1
     ?assert(opentelemetry_testing:match(Spans1, [SpanPattern1])),
 
-    {#{name := Name, span_id := SpanId2} = SpanPattern2, []} =
+    {#{name := Name, trace_id := TraceId2, span_id := SpanId2} = SpanPattern2, []} =
         generate_span_tree(SpanTreeInputData),
-    ?assertMatch({ok, #{}}, opentelemetry_testing:wait_for_span(SpanId2, 300)),
-    ?assertEqual({error, name_is_not_unique},
-                 opentelemetry_testing:get_span_id_by_name(Name)),
+    ?assertMatch({ok, #{}},
+                 opentelemetry_testing:wait_for_span(TraceId2, SpanId2, 300)),
+    ?assertEqual({error, span_is_not_unique},
+                 opentelemetry_testing:get_span_ids_by_name(Name)),
     Spans2 = opentelemetry_testing:get_spans_by_name(Name),
     %% ensure that spans are converted by opentelemetry_testing:get_spans_by_name/1
     ?assert(opentelemetry_testing:match(Spans2, [SpanPattern1, SpanPattern2])),
 
     opentelemetry_testing:reset(),
     ?assertEqual({error, not_found},
-                 opentelemetry_testing:get_span_id_by_name(Name)),
+                 opentelemetry_testing:get_span_ids_by_name(Name)),
     ?assertEqual([],
                  opentelemetry_testing:get_spans_by_name(Name)).
 
@@ -157,11 +162,12 @@ build_span_tree_property(SpanTreesInputData) ->
         span_tree_generator:generate_linked_span_trees(SpanTreesInputData,
                                                        fun(X) -> X end),
     [ begin
-          {#{span_id := RootSpanId}, _} = Pattern,
-          ?assertMatch({ok, #{}},
-                       opentelemetry_testing:wait_for_span(RootSpanId, 500)),
+          {#{trace_id := TraceId, span_id := RootSpanId}, _} = Pattern,
+          ?assertMatch(
+            {ok, #{}},
+            opentelemetry_testing:wait_for_span(TraceId, RootSpanId, 500)),
           {ok, SpanTree} =
-              opentelemetry_testing:build_span_tree(RootSpanId),
+              opentelemetry_testing:build_span_tree(TraceId, RootSpanId),
           ?assert(opentelemetry_testing:match(SpanTree, Pattern))
       end || Pattern <- TreePatterns ],
     true.

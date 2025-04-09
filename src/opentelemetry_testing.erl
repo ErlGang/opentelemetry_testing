@@ -4,7 +4,8 @@
 %% type definitions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--type attributes_map() :: #{opentelemetry:attribute_key() => opentelemetry:attribute_value()}.
+-type attributes_map() ::
+        #{opentelemetry:attribute_key() => opentelemetry:attribute_value()}.
 
 -type event() :: #{
                    name := opentelemetry:event_name(),
@@ -56,10 +57,10 @@
 %% API
 -export([ensure_started/0,
          reset/0,
-         get_span_id_by_name/1,
+         get_span_ids_by_name/1,
          get_spans_by_name/1,
-         wait_for_span/2,
-         build_span_tree/1,
+         wait_for_span/3,
+         build_span_tree/2,
          convert_span/1,
          match/2]).
 
@@ -72,7 +73,9 @@
 ensure_started() ->
     application:load(opentelemetry),
     application:set_env(opentelemetry, traces_exporter, none),
-    application:set_env(opentelemetry, processors, [{otel_simple_processor, #{}}]),
+    application:set_env(opentelemetry,
+                        processors,
+                        [{otel_simple_processor, #{}}]),
     {ok, _} = application:ensure_all_started(opentelemetry),
     ok = span_convertor:init(),
     ok = span_collector:ensure_started().
@@ -83,10 +86,11 @@ reset() ->
     span_collector:reset().
 
 
--spec get_span_id_by_name(opentelemetry:span_name()) ->
-          {ok, opentelemetry:span_id()} | {error, not_found | name_is_not_unique}.
-get_span_id_by_name(Name) ->
-    span_collector:get_span_id_by_name(Name).
+-spec get_span_ids_by_name(opentelemetry:span_name()) ->
+          {ok, {opentelemetry:trace_id(), opentelemetry:span_id()}} |
+          {error, not_found | span_is_not_unique}.
+get_span_ids_by_name(Name) ->
+    span_collector:get_span_ids_by_name(Name).
 
 
 -spec get_spans_by_name(opentelemetry:span_name()) ->
@@ -96,19 +100,21 @@ get_spans_by_name(Name) ->
     [ convert_span(Span) || Span <- Spans ].
 
 
--spec wait_for_span(opentelemetry:span_id(), non_neg_integer()) ->
-          {ok, span_map()} | {error, timeout | span_id_is_not_unique}.
-wait_for_span(SpanId, Timeout) ->
-    case span_collector:wait_for_span(SpanId, Timeout) of
+-spec wait_for_span(opentelemetry:trace_id(),
+                    opentelemetry:span_id(),
+                    non_neg_integer()) ->
+          {ok, span_map()} | {error, timeout | span_is_not_unique}.
+wait_for_span(TraceId, SpanId, Timeout) ->
+    case span_collector:wait_for_span(TraceId, SpanId, Timeout) of
         {ok, Span} -> {ok, convert_span(Span)};
         Ret -> Ret
     end.
 
 
--spec build_span_tree(opentelemetry:span_id()) ->
-          {ok, span_map_tree()} | {error, not_found | span_id_is_not_unique}.
-build_span_tree(SpanId) ->
-    span_collector:build_span_tree(SpanId, fun convert_span/1).
+-spec build_span_tree(opentelemetry:trace_id(), opentelemetry:span_id()) ->
+          {ok, span_map_tree()} | {error, not_found | span_is_not_unique}.
+build_span_tree(TraceId, SpanId) ->
+    span_collector:build_span_tree(TraceId, SpanId, fun convert_span/1).
 
 
 -spec convert_span(span_collector:span()) -> span_map().
@@ -138,7 +144,8 @@ maybe_simplify_attributes(#{
                                             map := Attributes
                                            }
                            } = Map) ->
-    %% convert attributes to a format similar to opentelemetry:attributes_map() type
+    %% convert attributes to a format similar to
+    %% opentelemetry:attributes_map() type
     Map#{attributes := Attributes};
 maybe_simplify_attributes(Term) -> Term.
 
