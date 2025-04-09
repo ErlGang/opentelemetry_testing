@@ -138,6 +138,9 @@ get_spans_by_name_test(_Config) ->
 
 
 build_span_tree_prop_test(_Config) ->
+    %% see comments in the span_collector_SUITE:build_span_tree_prop_test/1 testcase
+    rand:seed(default),
+
     PropTest = build_span_tree_property(),
     ?assertEqual(true,
                  proper:quickcheck(PropTest,
@@ -158,6 +161,9 @@ build_span_tree_property() ->
 
 
 build_span_tree_property(SpanTreesInputData) ->
+    %% see comments in the span_collector_SUITE:build_span_tree_prop_test/1 testcase
+    rand:seed(default),
+
     TreePatterns =
         span_tree_generator:generate_linked_span_trees(SpanTreesInputData,
                                                        fun(X) -> X end),
