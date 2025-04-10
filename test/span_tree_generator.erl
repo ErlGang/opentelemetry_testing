@@ -116,22 +116,23 @@ randomize_span_pattern(#{
                          status := Status
                         } = SpanPattern) ->
     %% randomize the Span pattern a bit
-    MaybeRemoveKeys = [attributes, events, links, status, trace_id],
+    MaybeRemoveKeys = [kind, status, attributes, events, links],
     RandomKeys = pick_random_items(MaybeRemoveKeys, length(MaybeRemoveKeys), true),
     RemoveKeys = case ParentSpanId of
                      undefined ->
-                         %% keep span_id for the root span
+                         %% keep trace_id and span_id for the root span
                          [parent_span_id | RandomKeys];
                      _ ->
-                         [span_id, parent_span_id | RandomKeys]
+                         [trace_id, span_id, parent_span_id | RandomKeys]
                  end,
     maps:without(RemoveKeys,
                  SpanPattern#{
-                   trace_id => '_',
-                   links => pick_random_items(Links, 2, false),
-                   events => pick_random_items(Events, 2, false),
+                   status => pick_random_map_keys(Status),
                    attributes => pick_random_map_keys(Attributes),
-                   status => pick_random_map_keys(Status)
+                   events => pick_random_items(Events, 2, false),
+                   links => pick_random_items(Links, 2, false),
+                   start_time => '_',
+                   end_time => '_'
                   }).
 
 
@@ -169,8 +170,6 @@ generate_span_tree({#{name := Name} = Span, Children}, Links, ConvertPatternFn) 
       Name,
       #{kind => Kind, attributes => Attributes, links => SpanLinks},
       fun(SpanCtx) ->
-              ct:log("SpanCtx == ~p", [SpanCtx]),
-              ct:log("Span == ~p", [Span]),
               BranchesAndNewLinks = [ generate_span_tree(C, Links, ConvertPatternFn)
                                       || C <- Children ],
               Branches = [ Branch || {Branch, _} <- BranchesAndNewLinks ],
@@ -263,5 +262,20 @@ pick_random_items(List, MaxN, AllowEmptyResult) ->
             true -> rand:uniform(min(Length, MaxN));
             false -> rand:uniform(min(Length, MaxN)) + 1
         end,
-    RandomIndexes = lists:uniq(tl([ rand:uniform(Length) || _ <- lists:seq(1, N) ])),
+    %% in the original span pattern of the randomize_span_pattern/1 function,
+    %% the lists of link and event patterns are ordered in the same way as
+    %% the data instances (see the generate_span_tree/3 function), and we don't
+    %% want a pattern list like this:
+    %%    [#{ attributes => #{ attr1 => <<"value1">>}, name => event1 },
+    %%     #{ attributes => #{}, name => event2 },
+    %%     #{ attributes => #{}, name => event1 }]
+    %% to turn into:
+    %%    [#{ attributes => #{}, name => event1 },
+    %%     #{ attributes => #{ attr1 => <<"value1">>}, name => event1 }]
+    %%
+    %% let's ensure the random indices are sorted in ascending order, so
+    %% the randomize_span_pattern/1 function does not shuffle the patterns
+    %% in the event/link list, and no accidental match can happen for a
+    %% less restrictive pattern.
+    RandomIndexes = lists:usort(tl([ rand:uniform(Length) || _ <- lists:seq(1, N) ])),
     [ lists:nth(Index, List) || Index <- RandomIndexes ].
