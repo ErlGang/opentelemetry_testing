@@ -31,7 +31,7 @@
          unknown_cast_test/1,
          unknown_info_test/1]).
 
--define(NUMBER_OF_REPETITIONS, 50).
+-define(NUMBER_OF_REPETITIONS, 100).
 -define(TABLE,                 '$spans_table').
 -define(GEN_SERVER_NAME,       span_collector).
 

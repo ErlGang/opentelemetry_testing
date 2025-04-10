@@ -22,7 +22,7 @@
 -define(assertNoDelay(Action), ?assert(?MILLISECONDS(Action) < 2)).
 -define(assertTimeout(Action, Timeout), ?assert(?MILLISECONDS(Action) >= Timeout)).
 
--define(NUMBER_OF_REPETITIONS, 10).
+-define(NUMBER_OF_REPETITIONS, 100).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% ct_suite callbacks
