@@ -166,7 +166,7 @@ build_span_tree_property(SpanTreesInputData) ->
 
     TreePatterns =
         span_tree_generator:generate_linked_span_trees(SpanTreesInputData,
-                                                       fun(X) -> X end),
+                                                       fun randomize_pattern/1),
     [ begin
           {#{trace_id := TraceId, span_id := RootSpanId}, _} = Pattern,
           ?assertMatch(
