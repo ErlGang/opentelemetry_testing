@@ -311,8 +311,7 @@ build_span_tree_prop_test(_Config) ->
     rand:seed(default),
 
     PropTest = build_span_tree_property(),
-    ?assertEqual(true,
-                 proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
+    ?assert(proper:quickcheck(PropTest, [?NUMBER_OF_REPETITIONS, noshrink])),
     ok.
 
 
