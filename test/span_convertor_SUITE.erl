@@ -184,17 +184,12 @@ safe_any() ->
     oneof([ct_proper_ext:safe_atom(),
            integer(),
            float(),
-           bitstring(10),
-           binary(5)]).
-
-
-small_non_empty_list(Type, MaxLength) ->
-    ?LET(Length, integer(1, MaxLength), vector(Length, Type)).
+           ?LET(Length, integer(0, 10), bitstring(Length)),
+           ?LET(Length, integer(0, 5), binary(Length))]).
 
 
 small_list(Type, MaxLength) ->
-    frequency([{10, small_non_empty_list(Type, MaxLength)},
-               {1, []}]).
+    ?LET(Length, integer(0, MaxLength), vector(Length, Type)).
 
 
 small_tuple(Type, MaxSize) ->

@@ -39,7 +39,7 @@ span_input_data_gen() ->
 
 
 name_gen() ->
-    ?LET(X, not_empty_gen(opentelemetry:span_name()), X).
+    not_empty_gen(oneof([atom(), small_binary()])).
 
 
 not_empty_gen(Type) ->
@@ -55,18 +55,20 @@ status_gen() ->
            status_map_gen()]).
 
 
+small_binary() ->
+    ?LET(Length, integer(0, 10), binary(Length)).
+
+
 status_map_gen() ->
     ?LET({StatusCode, Message},
-         {opentelemetry:status_code(), unicode:unicode_binary()},
-         begin
-             case StatusCode of
-                 ?OTEL_STATUS_ERROR ->
-                     #{code => StatusCode, message => Message};
-                 _ ->
-                     %% the message is ignored and reset to <<"">>
-                     %% for any status except ?OTEL_STATUS_ERROR
-                     #{code => StatusCode, message => <<"">>}
-             end
+         {opentelemetry:status_code(), small_binary()},
+         case StatusCode of
+             ?OTEL_STATUS_ERROR ->
+                 #{code => StatusCode, message => Message};
+             _ ->
+                 %% the message is ignored and reset to <<"">>
+                 %% for any status except ?OTEL_STATUS_ERROR
+                 #{code => StatusCode, message => <<"">>}
          end).
 
 
@@ -78,7 +80,18 @@ attributes_gen() ->
 
 
 attribute_gen() ->
-    ?LET(X, {name_gen(), opentelemetry:attribute_value()}, X).
+    {name_gen(), attribute_value_gen()}.
+
+
+attribute_value_gen() ->
+    %% opentelemetry:attribute_value() also supports tuple values, but they are
+    %% immediately converted into lists by otel_attributes:process_attributes/1
+    oneof([?LET(Length, integer(0, 5), vector(Length, attribute_simple_value_gen())),
+           attribute_simple_value_gen()]).
+
+
+attribute_simple_value_gen() ->
+    oneof([small_binary(), atom(), number(), boolean()]).
 
 
 events_gen() ->
