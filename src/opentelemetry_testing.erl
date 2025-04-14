@@ -77,7 +77,9 @@ ensure_started() ->
                         processors,
                         [{otel_simple_processor, #{}}]),
     {ok, _} = application:ensure_all_started(opentelemetry),
-    ok = span_convertor:init(),
+    %% make a dummy call to span_convertor:records_to_maps/1
+    %% to initialize data in persistent_term storage
+    {} = span_convertor:records_to_maps({}),
     ok = span_collector:ensure_started().
 
 
