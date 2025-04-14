@@ -4,7 +4,7 @@
 -include_lib("proper/include/proper.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
--export([all/0, init_per_testcase/2, end_per_testcase/2]).
+-export([all/0]).
 
 -export([add_record_test/1,
          recursive_records_conversion_prop_test/1]).
@@ -53,20 +53,6 @@ contains_nested_records(Term, RecordDefinitionsMap) ->
 all() ->
     [add_record_test,
      recursive_records_conversion_prop_test].
-
-
-init_per_testcase(recursive_records_conversion_prop_test, Config) ->
-    %% adding a code path is required to use safe type generators
-    %% from the ct_proper_ext module and avoid the "no more index
-    %% entries in atom_tab" crash during the test.
-    code:add_path(code:lib_dir(common_test) ++ "/proper_ext"),
-    Config;
-init_per_testcase(_TestCase, Config) ->
-    Config.
-
-
-end_per_testcase(_TestCase, Config) ->
-    Config.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -143,18 +129,18 @@ recursive_records_conversion_property(Term) ->
 
 random_type_gen(X0) when X0 > 0 ->
     X = X0 - 1,
-    ?LAZY(oneof([safe_any(),
-                 valid_record_gen(X),
-                 false_record_gen(X),
-                 nested_list_gen(X),
-                 nested_tuple_gen(X),
-                 nested_map_gen(X)]));
+    oneof([safe_any(),
+           valid_record_gen(X),
+           false_record_gen(X),
+           nested_list_gen(X),
+           nested_tuple_gen(X),
+           nested_map_gen(X)]);
 random_type_gen(_X) ->
     safe_any().
 
 
 safe_any() ->
-    oneof([ct_proper_ext:safe_atom(),
+    oneof([atom(),
            integer(),
            float(),
            ?LET(Length, integer(0, 10), bitstring(Length)),
