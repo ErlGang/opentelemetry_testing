@@ -1,10 +1,12 @@
 defmodule OpentelemetryTesting.MixProject do
   use Mix.Project
 
+  @app :opentelemetry_testing
+
   def project do
     [
-      app: :opentelemetry_testing,
-      version: "0.1.0",
+      app: @app,
+      version: version(),
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps()
@@ -20,9 +22,17 @@ defmodule OpentelemetryTesting.MixProject do
 
   # Run "mix help deps" to learn about dependencies.
   defp deps do
-    [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
-    ]
+    {:ok, rebar_config} = :file.consult("rebar.config")
+
+    for {hex_dependency, version} <- rebar_config[:deps] do
+      {hex_dependency, "#{version}"}
+    end
+  end
+
+  defp version do
+    {:ok, [{:application, @app, app_config}]} =
+      :file.consult("src/#{@app}.app.src")
+
+    "#{app_config[:vsn]}"
   end
 end

@@ -1,0 +1,4 @@
+%{
+  "opentelemetry": {:hex, :opentelemetry, "1.5.0", "7dda6551edfc3050ea4b0b40c0d2570423d6372b97e9c60793263ef62c53c3c2", [:rebar3], [{:opentelemetry_api, "~> 1.4", [hex: :opentelemetry_api, repo: "hexpm", optional: false]}], "hexpm", "cdf4f51d17b592fc592b9a75f86a6f808c23044ba7cf7b9534debbcc5c23b0ee"},
+  "opentelemetry_api": {:hex, :opentelemetry_api, "1.4.0", "63ca1742f92f00059298f478048dfb826f4b20d49534493d6919a0db39b6db04", [:mix, :rebar3], [], "hexpm", "3dfbbfaa2c2ed3121c5c483162836c4f9027def469c41578af5ef32589fcfc58"},
+}
