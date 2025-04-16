@@ -353,7 +353,7 @@ generate_span_tree_and_wait(SpanTreeInputData) ->
 
 
 generate_span_tree(SpanTreeInputData) ->
-    span_tree_generator:generate_span_tree(SpanTreeInputData, fun get_span/1).
+    span_tree_builder:generate_span_tree(SpanTreeInputData, fun get_span/1).
 
 
 get_span(#{span_id := SpanId}) ->

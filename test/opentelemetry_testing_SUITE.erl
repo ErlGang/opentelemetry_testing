@@ -249,8 +249,8 @@ build_span_tree_property(SpanTreesInputData) ->
     rand:seed(default),
 
     TreePatterns =
-        span_tree_generator:generate_linked_span_trees(SpanTreesInputData,
-                                                       fun randomize_pattern/1),
+        span_tree_builder:generate_linked_span_trees(SpanTreesInputData,
+                                                     fun randomize_pattern/1),
     [ begin
           {#{trace_id := TraceId, span_id := RootSpanId}, _} = Pattern,
           ?assertMatch(
@@ -269,11 +269,11 @@ build_span_tree_property(SpanTreesInputData) ->
 
 
 generate_span_tree(SpanTreeInputData) ->
-    span_tree_generator:generate_span_tree(SpanTreeInputData, fun(X) -> X end).
+    span_tree_builder:generate_span_tree(SpanTreeInputData, fun(X) -> X end).
 
 
 randomize_pattern(Pattern) ->
-    span_tree_generator:randomize_span_pattern(Pattern).
+    span_tree_builder:randomize_span_pattern(Pattern).
 
 
 match_failure(Value, Pattern, Matcher, ExtraFields) ->

@@ -9,6 +9,8 @@ defmodule OpentelemetryTesting.MixProject do
       version: version(),
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
+      erlc_paths: erlc_paths(Mix.env()),
       deps: deps()
     ]
   end
@@ -24,9 +26,16 @@ defmodule OpentelemetryTesting.MixProject do
   defp deps do
     {:ok, rebar_config} = :file.consult("rebar.config")
 
-    for {hex_dependency, version} <- rebar_config[:deps] do
-      {hex_dependency, "#{version}"}
-    end
+    rebar_deps =
+      for {hex_dependency, version} <- rebar_config[:deps] do
+        {hex_dependency, "#{version}"}
+      end
+
+    [
+      {:stream_data, "~> 1.2", only: :test},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      | rebar_deps
+    ]
   end
 
   defp version do
@@ -35,4 +44,10 @@ defmodule OpentelemetryTesting.MixProject do
 
     "#{app_config[:vsn]}"
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test"]
+  defp elixirc_paths(_), do: ["lib"]
+
+  defp erlc_paths(:test), do: ["src", "test/helpers"]
+  defp erlc_paths(_), do: ["src"]
 end

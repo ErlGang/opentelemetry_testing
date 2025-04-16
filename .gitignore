@@ -21,3 +21,23 @@ opentelemetry_testing-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# default rebar3 .gitignore content
+.rebar3
+_checkouts
+_vendor
+.eunit
+*.o
+*.beam
+*.plt
+*.swp
+*.swo
+.erlang.cookie
+ebin
+log
+.rebar
+logs
+.idea
+*.iml
+rebar3.crashdump
+*~
