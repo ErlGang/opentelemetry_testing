@@ -167,12 +167,7 @@ generate_span_tree(SpanTree, ConvertPatternFn) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-generate_span_tree(SpanTree, Links, ConvertPatternFn) ->
-    ct:log("SpanTree = ~p", [SpanTree]),
-    generate_span_tree(1, SpanTree, Links, ConvertPatternFn).
-
-
-generate_span_tree(Depth, {#{name := Name} = Span, Children}, Links, ConvertPatternFn) ->
+generate_span_tree({#{name := Name} = Span, Children}, Links, ConvertPatternFn) ->
     assert_span_input_data(Span),
     ParentSpanId = get_current_span_id(),
     Kind = maps:get(kind, Span, ?SPAN_KIND_INTERNAL),
@@ -180,15 +175,11 @@ generate_span_tree(Depth, {#{name := Name} = Span, Children}, Links, ConvertPatt
     Attributes = maps:get(attributes, Span, #{}),
     Events = maps:get(events, Span, []),
     SpanLinks = pick_random_items(Links, 4, true),
-    ct:log("Depth = ~p", [Depth]),
     ?with_span(
       Name,
       #{kind => Kind, attributes => Attributes, links => SpanLinks},
       fun(SpanCtx) ->
-              BranchesAndNewLinks = [ generate_span_tree(Depth + 1,
-                                                         Child,
-                                                         Links,
-                                                         ConvertPatternFn)
+              BranchesAndNewLinks = [ generate_span_tree(Child, Links, ConvertPatternFn)
                                       || Child <- Children ],
               Branches = [ Branch || {Branch, _} <- BranchesAndNewLinks ],
               NewLinks = lists:append([ Link || {_, Link} <- BranchesAndNewLinks ]),
@@ -296,7 +287,4 @@ pick_random_items(List, MaxN, AllowEmptyResult) ->
 
 sequence(N) ->
     %% note that lists:seq(1,0) returns []
-    List = lists:seq(1, N),
-    %% just in case, assert the length of the list
-    N = length(List),
-    List.
+    lists:seq(1, N).
