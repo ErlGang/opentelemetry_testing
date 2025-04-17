@@ -322,7 +322,7 @@ build_span_tree_prop_test(_Config) ->
 
 build_span_tree_property() ->
     ?FORALL(SpanTreeInputData,
-            span_tree_generator:span_tree_input_data_gen(30, 6, 6),
+            span_tree_generator:span_tree_input_data_gen(4, 4),
             build_span_tree_property(SpanTreeInputData)).
 
 

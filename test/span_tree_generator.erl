@@ -1,7 +1,7 @@
 -module(span_tree_generator).
 
 %% PropEr generators
--export([span_tree_input_data_gen/3]).
+-export([span_tree_input_data_gen/2]).
 
 %% API
 -export([randomize_span_pattern/1,
@@ -20,10 +20,18 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-span_tree_input_data_gen(NumberOfSpans, MaxBranchWidth, MaxBranchDepth) ->
-    ?LET({Spans, BranchDepth},
-         {vector(NumberOfSpans, span_input_data_gen()), integer(0, MaxBranchDepth)},
-         generate_span_tree_input_data(Spans, MaxBranchWidth, BranchDepth)).
+span_tree_input_data_gen(MaxBranchWidth, MaxBranchDepth) ->
+    BranchDepth = rand:uniform(MaxBranchDepth + 1) - 1,
+    NumberOfChildren = if
+                           BranchDepth > 0 ->
+                               rand:uniform(MaxBranchWidth + 1) - 1;
+                           true -> 0
+                       end,
+    %% Types can be combined in tuples or lists to produce other types.
+    %%    https://proper-testing.github.io/apidocs/proper_types.html#Basic_types
+    {span_input_data_gen(),
+     [ span_tree_input_data_gen(MaxBranchWidth, BranchDepth - 1)
+       || _ <- sequence(NumberOfChildren) ]}.
 
 
 span_input_data_gen() ->
@@ -104,18 +112,6 @@ event_gen() ->
          #{name => Name, attributes => Attributes}).
 
 
-generate_span_tree_input_data(Spans, MaxBranchWidth, MaxBranchDepth) ->
-    {pick_random_item(Spans),
-     generate_span_tree_branches_input_data(Spans, MaxBranchWidth, MaxBranchDepth)}.
-
-
-generate_span_tree_branches_input_data(_Spans, _Width, Depth) when Depth =< 0 ->
-    [];
-generate_span_tree_branches_input_data(Spans, Width, Depth) ->
-    [ {Span, generate_span_tree_branches_input_data(Spans, Width, Depth - 1)}
-      || Span <- pick_random_items(Spans, Width, true) ].
-
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% API
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -171,7 +167,12 @@ generate_span_tree(SpanTree, ConvertPatternFn) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-generate_span_tree({#{name := Name} = Span, Children}, Links, ConvertPatternFn) ->
+generate_span_tree(SpanTree, Links, ConvertPatternFn) ->
+    ct:log("SpanTree = ~p", [SpanTree]),
+    generate_span_tree(1, SpanTree, Links, ConvertPatternFn).
+
+
+generate_span_tree(Depth, {#{name := Name} = Span, Children}, Links, ConvertPatternFn) ->
     assert_span_input_data(Span),
     ParentSpanId = get_current_span_id(),
     Kind = maps:get(kind, Span, ?SPAN_KIND_INTERNAL),
@@ -179,12 +180,16 @@ generate_span_tree({#{name := Name} = Span, Children}, Links, ConvertPatternFn) 
     Attributes = maps:get(attributes, Span, #{}),
     Events = maps:get(events, Span, []),
     SpanLinks = pick_random_items(Links, 4, true),
+    ct:log("Depth = ~p", [Depth]),
     ?with_span(
       Name,
       #{kind => Kind, attributes => Attributes, links => SpanLinks},
       fun(SpanCtx) ->
-              BranchesAndNewLinks = [ generate_span_tree(C, Links, ConvertPatternFn)
-                                      || C <- Children ],
+              BranchesAndNewLinks = [ generate_span_tree(Depth + 1,
+                                                         Child,
+                                                         Links,
+                                                         ConvertPatternFn)
+                                      || Child <- Children ],
               Branches = [ Branch || {Branch, _} <- BranchesAndNewLinks ],
               NewLinks = lists:append([ Link || {_, Link} <- BranchesAndNewLinks ]),
               SpanId = SpanCtx#span_ctx.span_id,
@@ -260,11 +265,6 @@ pick_random_map_keys(Term) ->
     Term.
 
 
-pick_random_item(List) when length(List) > 0 ->
-    %% pick only one item from the List
-    hd(pick_random_items(List, 1, false)).
-
-
 pick_random_items([], _MaxN, _AllowEmptyResult) ->
     [];
 pick_random_items(_, 0, _AllowEmptyResult) ->
@@ -272,8 +272,8 @@ pick_random_items(_, 0, _AllowEmptyResult) ->
 pick_random_items(List, MaxN, AllowEmptyResult) ->
     Length = length(List),
     N = case AllowEmptyResult of
-            true -> rand:uniform(min(Length, MaxN));
-            false -> rand:uniform(min(Length, MaxN)) + 1
+            true -> rand:uniform(min(Length, MaxN) + 1) - 1;
+            false -> rand:uniform(min(Length, MaxN))
         end,
     %% in the original span pattern of the randomize_span_pattern/1 function,
     %% the lists of link and event patterns are ordered in the same way as
@@ -290,5 +290,13 @@ pick_random_items(List, MaxN, AllowEmptyResult) ->
     %% the randomize_span_pattern/1 function does not shuffle the patterns
     %% in the event/link list, and no accidental match can happen for a
     %% less restrictive pattern.
-    RandomIndexes = lists:usort(tl([ rand:uniform(Length) || _ <- lists:seq(1, N) ])),
+    RandomIndexes = lists:usort([ rand:uniform(Length) || _ <- sequence(N) ]),
     [ lists:nth(Index, List) || Index <- RandomIndexes ].
+
+
+sequence(N) ->
+    %% note that lists:seq(1,0) returns []
+    List = lists:seq(1, N),
+    %% just in case, assert the length of the list
+    N = length(List),
+    List.
