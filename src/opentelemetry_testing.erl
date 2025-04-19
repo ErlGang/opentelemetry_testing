@@ -61,8 +61,13 @@
          get_spans_by_name/1,
          wait_for_span/3,
          build_span_tree/2,
-         convert_span/1,
          match/2]).
+
+-ifdef(TEST).
+
+-export([convert_span/1]).
+
+-endif.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% API implementation
@@ -119,16 +124,6 @@ build_span_tree(TraceId, SpanId) ->
     span_collector:build_span_tree(TraceId, SpanId, fun convert_span/1).
 
 
--spec convert_span(span_collector:span()) -> span_map().
-convert_span(Span) ->
-    ConversionFunctions = [fun span_convertor:records_to_maps/1,
-                           fun maybe_simplify_attributes/1,
-                           fun maybe_simplify_events/1,
-                           fun maybe_simplify_links/1],
-    FoldFn = fun(Fn, Acc) when is_function(Fn, 1) -> Fn(Acc) end,
-    lists:foldl(FoldFn, Span, ConversionFunctions).
-
-
 -spec match(span_matcher:value(), span_matcher:pattern()) ->
           span_matcher:match_result().
 match(Value, Pattern) ->
@@ -138,6 +133,16 @@ match(Value, Pattern) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% local functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+-spec convert_span(span_collector:span()) -> span_map().
+convert_span(Span) ->
+    ConversionFunctions = [fun span_convertor:records_to_maps/1,
+                           fun maybe_simplify_attributes/1,
+                           fun maybe_simplify_events/1,
+                           fun maybe_simplify_links/1],
+    FoldFn = fun(Fn, Acc) when is_function(Fn, 1) -> Fn(Acc) end,
+    lists:foldl(FoldFn, Span, ConversionFunctions).
 
 
 maybe_simplify_attributes(#{

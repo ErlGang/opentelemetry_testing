@@ -2,37 +2,9 @@ defmodule OpentelemetryTestingTest do
   use ExUnit.Case, async: true
   import ExUnit.CaptureLog
 
-  # Use Record module to extract fields of the Span record from the opentelemetry dependency.
-  require Record
-  @fields Record.extract(:span, from_lib: "opentelemetry/include/otel_span.hrl")
-  # Define macros for `Span`.
-  Record.defrecordp(:span, @fields)
-
   test "OpentelemetryTesting.ensure_started/0 is idempotent" do
     assert :ok == OpentelemetryTesting.ensure_started()
     assert :ok == OpentelemetryTesting.ensure_started()
-  end
-
-  test "OpentelemetryTesting.convert_span/1 is equivalent to :opentelemetry_testing.convert_span/1" do
-    span_trees_input_data = Enum.take(SpanTreeGenerator.span_tree_input_data_gen(6, 6), 10)
-
-    tree_patterns = :span_tree_builder.generate_linked_span_trees(span_trees_input_data, & &1)
-
-    for {%{trace_id: trace_id, span_id: span_id}, _} <- tree_patterns do
-      assert {:ok, %{}} = OpentelemetryTesting.wait_for_span(trace_id, span_id, 300)
-
-      assert build_span_tree(trace_id, span_id, &OpentelemetryTesting.convert_span/1) ==
-               build_span_tree(trace_id, span_id, &:opentelemetry_testing.convert_span/1)
-    end
-  end
-
-  defp build_span_tree(trace_id, span_id, span_conversion_fn) do
-    :span_collector.build_span_tree(trace_id, span_id, span_conversion_fn)
-  end
-
-  test "OpentelemetryTesting.convert_span/1 doesn't crash on unexpected input" do
-    assert %{attributes: :undefined, events: :undefined, links: :undefined} =
-             OpentelemetryTesting.convert_span(span())
   end
 
   test "OpentelemetryTesting.wait_for_span/3 returns errors" do
@@ -46,7 +18,6 @@ defmodule OpentelemetryTestingTest do
     ## we have 2 spans with this trace_id
     {result, log} = with_log(fn -> OpentelemetryTesting.wait_for_span(trace_id, :_, 0) end)
     assert {:error, :span_is_not_unique} == result
-    IO.inspect(log)
     assert log =~ "multiple spans matched:"
   end
 
@@ -61,7 +32,6 @@ defmodule OpentelemetryTestingTest do
     ## we have 2 spans with this trace_id
     {result, log} = with_log(fn -> OpentelemetryTesting.build_span_tree(trace_id, :_) end)
     assert {:error, :span_is_not_unique} == result
-    IO.inspect(log)
     assert log =~ "multiple spans matched:"
   end
 
