@@ -24,6 +24,7 @@ opentelemetry_testing-*.tar
 
 # default rebar3 .gitignore content
 .rebar3
+_build.rebar
 _checkouts
 _vendor
 .eunit
