@@ -54,9 +54,6 @@ groups() ->
 
 
 init_per_suite(Config) ->
-    ct:log("loaded_applications = ~p", [application:loaded_applications()]),
-    ct:log("which_applications = ~p", [application:which_applications()]),
-
     opentelemetry_testing:ensure_started(),
     Config.
 

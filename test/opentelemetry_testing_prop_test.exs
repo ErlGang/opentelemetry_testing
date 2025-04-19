@@ -21,9 +21,6 @@ defmodule OpentelemetryTestingPropTest do
 
         assert {:ok, span_tree} = OpentelemetryTesting.build_span_tree(trace_id, span_id)
         assert true == OpentelemetryTesting.match(span_tree, tree_pattern)
-
-        # IO.inspect(span_tree, label: :span_tree)
-        # IO.inspect(tree_pattern, label: :tree_pattern)
       end
     end
   end

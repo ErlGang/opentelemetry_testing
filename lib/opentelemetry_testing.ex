@@ -34,7 +34,6 @@ defmodule OpentelemetryTesting do
   #########################################################################
 
   def ensure_started do
-    IO.inspect(Process.info(self(), :current_stacktrace))
     ## when running 'mix test,' dependency applications are normally started
     ## before test execution, so the test configuration for the :opentelemetry
     ## app should be provided in the "config/config.exs" file

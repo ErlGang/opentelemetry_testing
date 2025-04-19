@@ -3,8 +3,6 @@ defmodule SpanTreeGenerator do
 
   def span_tree_input_data_gen(max_branch_width, max_branch_depth)
       when max_branch_depth > 0 do
-    IO.inspect(__ENV__.function)
-
     SD.tuple(
       {span_input_data_gen(),
        SD.list_of(
@@ -15,13 +13,10 @@ defmodule SpanTreeGenerator do
   end
 
   def span_tree_input_data_gen(_max_branch_width, _max_branch_depth) do
-    IO.inspect(__ENV__.function)
     SD.tuple({span_input_data_gen(), SD.constant([])})
   end
 
   defp span_input_data_gen do
-    IO.inspect(__ENV__.function)
-
     SD.bind(
       {name_gen(), kind_gen(), status_gen(), attributes_gen(), events_gen()},
       fn {name, kind, status, attributes, events} ->
@@ -37,8 +32,6 @@ defmodule SpanTreeGenerator do
   end
 
   defp name_gen do
-    IO.inspect(__ENV__.function)
-
     SD.one_of([
       SD.filter(
         SD.atom(:alphanumeric),
@@ -49,18 +42,14 @@ defmodule SpanTreeGenerator do
   end
 
   defp kind_gen do
-    IO.inspect(__ENV__.function)
     SD.one_of([:internal, :server, :client, :producer, :consumer])
   end
 
   defp status_gen do
-    IO.inspect(__ENV__.function)
     SD.one_of([:undefined, status_map_gen()])
   end
 
   defp status_map_gen do
-    IO.inspect(__ENV__.function)
-
     SD.bind(
       {status_code_gen(), SD.binary(max_length: 10)},
       fn {status_code, message} ->
@@ -78,13 +67,10 @@ defmodule SpanTreeGenerator do
   end
 
   defp status_code_gen do
-    IO.inspect(__ENV__.function)
     SD.one_of([:unset, :ok, :error])
   end
 
   defp attributes_gen do
-    IO.inspect(__ENV__.function)
-
     SD.bind(
       SD.list_of(attribute_gen(), max_length: 5),
       fn keyword_attributes ->
@@ -96,13 +82,10 @@ defmodule SpanTreeGenerator do
   end
 
   defp attribute_gen do
-    IO.inspect(__ENV__.function)
     SD.tuple({name_gen(), attribute_value_gen()})
   end
 
   defp attribute_value_gen do
-    IO.inspect(__ENV__.function)
-
     SD.one_of([
       SD.list_of(simple_attribute_value_gen(), max_length: 5),
       simple_attribute_value_gen()
@@ -110,8 +93,6 @@ defmodule SpanTreeGenerator do
   end
 
   defp simple_attribute_value_gen do
-    IO.inspect(__ENV__.function)
-
     SD.one_of([
       SD.binary(max_length: 10),
       SD.atom(:alphanumeric),
@@ -122,13 +103,10 @@ defmodule SpanTreeGenerator do
   end
 
   defp events_gen do
-    IO.inspect(__ENV__.function)
     SD.list_of(event_gen(), max_length: 5)
   end
 
   defp event_gen do
-    IO.inspect(__ENV__.function)
-
     SD.bind(
       {name_gen(), attributes_gen()},
       fn {name, attributes} ->
