@@ -10,7 +10,6 @@ defmodule OpentelemetryTesting.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
-      erlc_paths: erlc_paths(Mix.env()),
       erlc_options: erlc_options(Mix.env()),
       deps: deps()
     ]
@@ -48,9 +47,6 @@ defmodule OpentelemetryTesting.MixProject do
 
   defp elixirc_paths(:test), do: ["lib", "test"]
   defp elixirc_paths(_), do: ["lib"]
-
-  defp erlc_paths(:test), do: ["src", "test/helpers"]
-  defp erlc_paths(_), do: ["src"]
 
   defp erlc_options(:test), do: [{:d, :TEST, true}]
   defp erlc_options(_), do: []

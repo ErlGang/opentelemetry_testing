@@ -9,9 +9,9 @@ defmodule OpentelemetryTestingPropTest do
               SD.list_of(SpanTreeGenerator.span_tree_input_data_gen(4, 4), length: 4)
           ) do
       tree_patterns =
-        :span_tree_builder.generate_linked_span_trees(
+        SpanTreeBuilder.generate_linked_span_trees(
           span_trees_input_data,
-          &:span_tree_builder.randomize_span_pattern/1
+          &SpanTreeBuilder.randomize_span_pattern/1
         )
 
       for {%{trace_id: trace_id, span_id: span_id} = span_pattern, _} = tree_pattern <-
