@@ -1,4 +1,5 @@
 defmodule OpentelemetryTestingTest do
+  require OpentelemetryTesting
   use ExUnit.Case, async: true
   import ExUnit.CaptureLog
 
@@ -7,6 +8,7 @@ defmodule OpentelemetryTestingTest do
     assert :ok == OpentelemetryTesting.ensure_started()
   end
 
+  @tag capture_log: true
   test "OpentelemetryTesting.wait_for_span/3 returns errors" do
     span_tree_input_data = {%{name: "some_span_name"}, [{%{name: "some_span_name"}, []}]}
 
@@ -19,8 +21,13 @@ defmodule OpentelemetryTestingTest do
     {result, log} = with_log(fn -> OpentelemetryTesting.wait_for_span(trace_id, :_, 0) end)
     assert {:error, :span_is_not_unique} == result
     assert log =~ "multiple spans matched:"
+
+    assert_raise RuntimeError,
+                 ~r"Elixir.OpentelemetryTesting.wait_for_span!/3:.*:span_is_not_unique"s,
+                 fn -> OpentelemetryTesting.wait_for_span!(trace_id, :_, 0) end
   end
 
+  @tag capture_log: true
   test "OpentelemetryTesting.build_span_tree/2 returns errors" do
     span_tree_input_data = {%{name: "some_span_name"}, [{%{name: "some_span_name"}, []}]}
 
@@ -33,6 +40,10 @@ defmodule OpentelemetryTestingTest do
     {result, log} = with_log(fn -> OpentelemetryTesting.build_span_tree(trace_id, :_) end)
     assert {:error, :span_is_not_unique} == result
     assert log =~ "multiple spans matched:"
+
+    assert_raise RuntimeError,
+                 ~r"Elixir.OpentelemetryTesting.build_span_tree!/2:.*:span_is_not_unique"s,
+                 fn -> OpentelemetryTesting.build_span_tree!(trace_id, :_) end
   end
 
   test "OpentelemetryTesting.get_span_ids_by_name/1 returns errors" do
@@ -41,8 +52,29 @@ defmodule OpentelemetryTestingTest do
     span_tree_input_data = {%{name: span_name}, [{%{name: span_name}, []}]}
     {%{span_id: span_id}, _} = SpanTreeBuilder.generate_span_tree(span_tree_input_data, & &1)
     ## we have 2 spans with this span name
-    assert {:ok, %{}} = OpentelemetryTesting.wait_for_span(:_, span_id, 300)
+    OpentelemetryTesting.wait_for_span!(:_, span_id, 300)
     assert {:error, :span_is_not_unique} == OpentelemetryTesting.get_span_ids_by_name(span_name)
+
+    assert_raise RuntimeError,
+                 ~r"Elixir.OpentelemetryTesting.get_span_ids_by_name!/1:.*:span_is_not_unique"s,
+                 fn -> OpentelemetryTesting.get_span_ids_by_name!(span_name) end
+  end
+
+  test "OpentelemetryTesting.build_span_tree/2 returns converted span tree" do
+    span_tree_input_data = {%{name: "some_span_name"}, [{%{name: "some_span_name"}, []}]}
+
+    {%{trace_id: trace_id, span_id: span_id}, _} =
+      span_tree_pattern =
+      SpanTreeBuilder.generate_span_tree(span_tree_input_data, & &1)
+
+    OpentelemetryTesting.wait_for_span(trace_id, span_id, 300)
+
+    assert {:ok, {%{trace_id: trace_id, span_id: span_id}, _} = span_tree} =
+             OpentelemetryTesting.build_span_tree(trace_id, span_id)
+
+    OpentelemetryTesting.match!(span_tree, span_tree_pattern)
+
+    assert span_tree == OpentelemetryTesting.build_span_tree!(trace_id, span_id)
   end
 
   test "OpentelemetryTesting.get_span_ids_by_name/1 returns trace and span ids" do
@@ -53,10 +85,11 @@ defmodule OpentelemetryTestingTest do
     {%{trace_id: trace_id, span_id: span_id}, _} =
       SpanTreeBuilder.generate_span_tree(span_tree_input_data, & &1)
 
-    assert {:ok, %{}} = OpentelemetryTesting.wait_for_span(trace_id, span_id, 300)
+    OpentelemetryTesting.wait_for_span!(trace_id, span_id, 300)
 
     ## we have 1 span with this span name
     assert {:ok, {trace_id, span_id}} == OpentelemetryTesting.get_span_ids_by_name(span_name)
+    assert {trace_id, span_id} == OpentelemetryTesting.get_span_ids_by_name!(span_name)
   end
 
   test "OpentelemetryTesting.get_spans_by_name/1 returns converted spans" do
@@ -65,38 +98,68 @@ defmodule OpentelemetryTestingTest do
     span_tree_input_data = {%{name: span_name}, []}
 
     {span_pattern1, []} = SpanTreeBuilder.generate_span_tree(span_tree_input_data, & &1)
-    assert {:ok, %{}} = OpentelemetryTesting.wait_for_span(:_, span_pattern1.span_id, 300)
+    OpentelemetryTesting.wait_for_span!(:_, span_pattern1.span_id, 300)
 
     ## we have 1 span with this span name
     span_list1 = OpentelemetryTesting.get_spans_by_name(span_name)
-    assert true == OpentelemetryTesting.match(span_list1, [span_pattern1])
+    OpentelemetryTesting.match!(span_list1, [span_pattern1])
 
     {span_pattern2, []} = SpanTreeBuilder.generate_span_tree(span_tree_input_data, & &1)
-    assert {:ok, %{}} = OpentelemetryTesting.wait_for_span(:_, span_pattern2.span_id, 300)
+    OpentelemetryTesting.wait_for_span!(:_, span_pattern2.span_id, 300)
 
     ## we have 2 spans with this span name
     span_list2 = OpentelemetryTesting.get_spans_by_name(span_name)
-    assert true == OpentelemetryTesting.match(span_list2, [span_pattern1, span_pattern2])
+    OpentelemetryTesting.match!(span_list2, [span_pattern1, span_pattern2])
   end
-end
 
-defmodule OpentelemetryTestingResetTest do
-  use ExUnit.Case, async: false
+  test "OpentelemetryTesting.match/1 fails with failure_stack reporting" do
+    pattern = %{key: {[]}}
+    value = %{key: {[:test]}}
 
-  test "OpentelemetryTesting.reset/1 removes all collected spans" do
-    ## span_name is much longer than the names generated by SpanTreeGenerator
-    span_name = elem(__ENV__.function, 0)
-    span_tree_input_data = {%{name: span_name}, [{%{name: span_name}, []}]}
-    {%{span_id: span_id}, _} = SpanTreeBuilder.generate_span_tree(span_tree_input_data, & &1)
-    assert {:ok, %{}} = OpentelemetryTesting.wait_for_span(:_, span_id, 300)
+    failure_stack = [
+      %{
+        reason: :match_failed,
+        value: %{key: {[:test]}},
+        pattern: %{key: {[]}},
+        matcher: :match_map
+      },
+      %{
+        reason: :match_failed,
+        value: {[:test]},
+        pattern: {[]},
+        key: :key,
+        matcher: :match_map_key
+      },
+      %{reason: :match_failed, value: {[:test]}, pattern: {[]}, matcher: :match_tuple},
+      %{
+        position: 1,
+        reason: :match_failed,
+        value: [:test],
+        pattern: [],
+        matcher: :match_tuple_element
+      },
+      %{reason: :list_is_not_empty, value: [:test], pattern: [], matcher: :match_list}
+    ]
 
-    ## we have 2 spans with this span name
-    assert [%{name: span_name}, %{name: span_name}] =
-             OpentelemetryTesting.get_spans_by_name(span_name)
+    assert {false, failure_stack} == OpentelemetryTesting.match(value, pattern)
 
-    OpentelemetryTesting.reset()
+    regex =
+      <<"Elixir.OpentelemetryTesting.match!/2:", ".*matcher:.*:match_map",
+        ".*matcher:.*:match_map_key", ".*matcher:.*:match_tuple",
+        ".*matcher:.*:match_tuple_element", ".*reason:.*:list_is_not_empty">>
 
-    ## after resetting we have no spans with this span name
-    assert [] == OpentelemetryTesting.get_spans_by_name(span_name)
+    assert_raise RuntimeError,
+                 ~r"#{regex}"s,
+                 fn -> OpentelemetryTesting.match!(value, pattern) end
+  end
+
+  test "OpentelemetryTesting.raise_error/1 macro" do
+    assert_raise RuntimeError,
+                 ~r"#{__MODULE__}.raise_exception/1:.*:some_error"s,
+                 fn -> raise_exception(:some_error) end
+  end
+
+  defp raise_exception(error) do
+    OpentelemetryTesting.raise_error(error)
   end
 end
