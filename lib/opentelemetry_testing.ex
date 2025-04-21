@@ -1,4 +1,9 @@
 defmodule OpentelemetryTesting do
+  require Record
+
+  @fields Record.extract(:span_ctx, from_lib: "opentelemetry_api/include/opentelemetry.hrl")
+  Record.defrecordp(:span_ctx, @fields)
+
   #########################################################################
   ## local macros
   #########################################################################
@@ -58,6 +63,13 @@ defmodule OpentelemetryTesting do
     case match(value, pattern) do
       true -> true
       {false, error} -> raise_error(error)
+    end
+  end
+
+  def get_span_ids do
+    case OpenTelemetry.Tracer.current_span_ctx() do
+      span_ctx(trace_id: trace_id, span_id: span_id) -> {trace_id, span_id}
+      :undefined -> :undefined
     end
   end
 end

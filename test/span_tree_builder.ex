@@ -1,9 +1,6 @@
 defmodule SpanTreeBuilder do
   require OpenTelemetry.Tracer, as: Tracer
-  require Record
 
-  @fields Record.extract(:span_ctx, from_lib: "opentelemetry_api/include/opentelemetry.hrl")
-  Record.defrecordp(:span_ctx, @fields)
   #########################################################################
   ## API
   #########################################################################
@@ -73,7 +70,7 @@ defmodule SpanTreeBuilder do
     span_links = pick_random_items(links, 4, true)
 
     Tracer.with_span name, %{kind: kind, attributes: attributes, links: span_links} do
-      span_ctx(span_id: span_id, trace_id: trace_id) = Tracer.current_span_ctx()
+      {trace_id, span_id} = OpentelemetryTesting.get_span_ids()
 
       branches_and_new_links =
         Enum.map(children, &generate_span_tree(&1, links, convert_pattern_fn))
@@ -117,8 +114,8 @@ defmodule SpanTreeBuilder do
   end
 
   defp get_current_span_id do
-    case Tracer.current_span_ctx() do
-      span_ctx(span_id: span_id) -> span_id
+    case OpentelemetryTesting.get_span_ids() do
+      {_trace_id, span_id} -> span_id
       :undefined -> :undefined
     end
   end
