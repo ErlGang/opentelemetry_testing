@@ -1,5 +1,4 @@
 defmodule OpentelemetryTestingTest do
-  require OpentelemetryTesting
   use ExUnit.Case, async: true
   import ExUnit.CaptureLog
 
@@ -151,15 +150,5 @@ defmodule OpentelemetryTestingTest do
     assert_raise RuntimeError,
                  ~r"#{regex}"s,
                  fn -> OpentelemetryTesting.match!(value, pattern) end
-  end
-
-  test "OpentelemetryTesting.raise_error/1 macro" do
-    assert_raise RuntimeError,
-                 ~r"#{__MODULE__}.raise_exception/1:.*:some_error"s,
-                 fn -> raise_exception(:some_error) end
-  end
-
-  defp raise_exception(error) do
-    OpentelemetryTesting.raise_error(error)
   end
 end

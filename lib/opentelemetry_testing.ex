@@ -1,9 +1,9 @@
 defmodule OpentelemetryTesting do
   #########################################################################
-  ## macros
+  ## local macros
   #########################################################################
 
-  defmacro raise_error(error) do
+  defmacrop raise_error(error) do
     quote do
       {function, arity} = __ENV__.function
 
