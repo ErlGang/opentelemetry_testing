@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: main
+  pull_request:
+    branches: main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image-tag:
+          - "1.16.3-erlang-26.2.5.11-alpine-3.20.6"
+          - "1.17.3-erlang-26.2.5.11-alpine-3.20.6"
+          - "1.18.3-erlang-27.3.3-alpine-3.20.6"
+
+    container:
+      image: hexpm/elixir:${{ matrix.image-tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: install rebar3
+        run: mix local.rebar
+      - name: add rebar3 into PATH
+        run: find ~/.mix -name rebar3 | sed 's/rebar3$//' >> "$GITHUB_PATH"
+      - name: install git
+        run: apk update; apk add git
+      - name: compile erlang project
+        run: rebar3 compile
+      - name: run CT tests
+        run: rebar3 ct
+      # - name: check erlang files formatting
+      #   run: rebar3 efmt -c
+      - name: fetch elixir project deps
+        run: mix deps.get
+      - name: compile elixir project
+        run: mix compile
+      - name: run ExUnit tests
+        run: mix test
+      - name: check elixir files formatting
+        run: mix format --check-formatted
+      - name: run dialyzer check
+        run: mix dialyzer

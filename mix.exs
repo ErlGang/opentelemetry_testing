@@ -7,7 +7,7 @@ defmodule OpentelemetryTesting.MixProject do
     [
       app: @app,
       version: version(),
-      elixir: "~> 1.18",
+      elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       erlc_options: erlc_options(Mix.env()),
