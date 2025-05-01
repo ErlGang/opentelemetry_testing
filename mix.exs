@@ -9,6 +9,7 @@ defmodule OpentelemetryTesting.MixProject do
       version: version(),
       elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
+      test_coverage: [tool: ExCoveralls],
       elixirc_paths: elixirc_paths(Mix.env()),
       erlc_options: erlc_options(Mix.env()),
       deps: deps()
@@ -33,6 +34,7 @@ defmodule OpentelemetryTesting.MixProject do
 
     [
       {:stream_data, "~> 1.2", only: :test},
+      {:excoveralls, "~> 0.18.5", only: :test},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
       | rebar_deps
     ]

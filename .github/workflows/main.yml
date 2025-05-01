@@ -33,7 +33,7 @@ jobs:
       - name: compile erlang project
         run: rebar3 compile
       - name: run CT tests
-        run: rebar3 ct
+        run: rebar3 ct --cover
       # - name: check erlang files formatting
       #   run: rebar3 efmt -c
       - name: fetch elixir project deps
@@ -41,8 +41,19 @@ jobs:
       - name: compile elixir project
         run: mix compile
       - name: run ExUnit tests
-        run: mix test
-      - name: check elixir files formatting
+        run: MIX_ENV=test mix coveralls.json --import-cover _build.rebar/test/cover/
+      - if: matrix.image-tag == '1.18.3-erlang-27.3.3-alpine-3.20.6'
+        name: check elixir files formatting
         run: mix format --check-formatted
       - name: run dialyzer check
         run: mix dialyzer
+      - name: install the tools required for codecov action
+        run: apk add bash curl gpg
+      - if: matrix.image-tag == '1.18.3-erlang-27.3.3-alpine-3.20.6'
+        name: upload coverage report to codecov
+        uses: codecov/codecov-action@v5
+        with:
+          disable_search: true
+          files: cover/excoveralls.json
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
