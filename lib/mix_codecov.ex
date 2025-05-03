@@ -3,6 +3,9 @@ defmodule Mix.Tasks.Codecov do
   @shortdoc "Build json report from exported test coverage"
   def run(args) do
     Mix.ensure_application!(:tools)
+    project_config = Mix.Project.config()
+    test_coverage_config = project_config[:test_coverage]
+    ignore_modules = test_coverage_config[:ignore_modules]
 
     cover_paths =
       case args do
@@ -32,8 +35,7 @@ defmodule Mix.Tasks.Codecov do
       for m <- :cover.imported_modules(),
           ## analyze only loaded modules
           Code.ensure_loaded?(m),
-          ## ignore itself
-          m !== __MODULE__,
+          not Enum.member?(ignore_modules, m),
           reduce: %{} do
         acc ->
           {:ok, coverage} = :cover.analyse(m, :calls, :line)
@@ -43,7 +45,6 @@ defmodule Mix.Tasks.Codecov do
             compile_info[:source]
             |> List.to_string()
             |> Path.relative_to(File.cwd!())
-            |> IO.inspect()
 
           cover_info =
             case Map.get(acc, source_file) do
@@ -51,12 +52,11 @@ defmodule Mix.Tasks.Codecov do
                 source_code = File.read!(source_file)
 
                 number_of_lines =
-                  ((Regex.scan(~r"\n", source_code, return: :index) |> length()) + 1)
-                  |> IO.inspect(label: :number_of_lines)
+                  (Regex.scan(~r"\n", source_code, return: :index) |> length()) + 1
 
                 ## element with index 0 is dropped later, hence adding 1 to the number_of_lines
                 coverage_array = :array.new(number_of_lines + 1, default: nil)
-                IO.inspect(:array.size(coverage_array), label: :size)
+
                 %{name: source_file, source: source_code, coverage: coverage_array}
 
               map ->

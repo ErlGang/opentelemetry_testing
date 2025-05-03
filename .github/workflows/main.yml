@@ -41,14 +41,14 @@ jobs:
       - name: compile elixir project
         run: mix compile
       - name: run ExUnit tests
-        run: MIX_ENV=test mix coveralls.json --import-cover _build.rebar/test/cover/
+        run: mix test --cover
       - if: matrix.image-tag == '1.18.3-erlang-27.3.3-alpine-3.20.6'
         name: check elixir files formatting
         run: mix format --check-formatted
       - name: run dialyzer check
         run: mix dialyzer
       - name: generate codecov.json file
-        run: mix codecov
+        run: mix codecov _build.rebar/test/cover cover
       - name: install the tools required for codecov action
         run: apk add bash curl gpg
       - if: matrix.image-tag == '1.18.3-erlang-27.3.3-alpine-3.20.6'
