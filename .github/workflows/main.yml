@@ -47,6 +47,8 @@ jobs:
         run: mix format --check-formatted
       - name: run dialyzer check
         run: mix dialyzer
+      - name: generate codecov.json file
+        run: mix codecov
       - name: install the tools required for codecov action
         run: apk add bash curl gpg
       - if: matrix.image-tag == '1.18.3-erlang-27.3.3-alpine-3.20.6'
@@ -54,6 +56,6 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           disable_search: true
-          files: cover/excoveralls.json
+          files: codecov.json
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

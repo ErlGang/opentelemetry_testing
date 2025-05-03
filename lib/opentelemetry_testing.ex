@@ -99,3 +99,9 @@ defmodule OpentelemetryTesting do
     end
   end
 end
+
+defmodule TestModule do
+  def test_function do
+    :ok
+  end
+end
