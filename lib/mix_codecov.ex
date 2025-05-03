@@ -30,20 +30,24 @@ defmodule Mix.Tasks.Codecov do
 
     modules =
       for m <- :cover.imported_modules(),
-          ## analyzing only loaded modules
+          ## analyze only loaded modules
           Code.ensure_loaded?(m),
           ## ignore itself
           m !== __MODULE__ do
-        {:ok, coverage} = :cover.analyse(m, :calls, :line) |> IO.inspect()
+        {:ok, coverage} = :cover.analyse(m, :calls, :line)
         compile_info = m.module_info(:compile)
 
         source_file =
-          String.replace_leading("#{compile_info[:source]}", File.cwd!(), ".") |> IO.inspect()
+          compile_info[:source]
+          |> List.to_string()
+          |> Path.relative_to(File.cwd!())
+          |> IO.inspect()
 
         source_code = File.read!(source_file)
 
         number_of_lines =
-          String.split(source_code, ~r"\n") |> length() |> IO.inspect(label: :number_of_lines)
+          ((Regex.scan(~r"\n", source_code, return: :index) |> length()) + 1)
+          |> IO.inspect(label: :number_of_lines)
 
         coverage =
           for {{^m, line}, calls} <- coverage,
@@ -61,47 +65,47 @@ defmodule Mix.Tasks.Codecov do
       end
       |> Enum.sort_by(& &1.name)
       ## there can be multiple elixir modules in one file. merge coverage data for such modules
-      |> consolidate_all_repeating_files([])
+      |> merge_all_repeating_files([])
 
     json_data = Jason.encode!(%{source_files: modules})
     File.write!("codecov.json", json_data)
   end
 
   ## File array must be sorted before calling this function
-  defp consolidate_all_repeating_files([], acc) do
+  defp merge_all_repeating_files([], acc) do
     Enum.reverse(acc)
   end
 
-  defp consolidate_all_repeating_files(
+  defp merge_all_repeating_files(
          [%{name: file_name} = f1, %{name: file_name} = f2 | tail],
          acc
        ) do
-    f = consolidate_files(f1, f2)
-    consolidate_all_repeating_files([f | tail], acc)
+    f = merge_files(f1, f2)
+    merge_all_repeating_files([f | tail], acc)
   end
 
-  defp consolidate_all_repeating_files([f | tail], acc) do
-    consolidate_all_repeating_files(tail, [f | acc])
+  defp merge_all_repeating_files([f | tail], acc) do
+    merge_all_repeating_files(tail, [f | acc])
   end
 
-  defp consolidate_files(f1, f2) do
-    coverage = consolidate_coverage(f1.coverage, f2.coverage)
+  defp merge_files(f1, f2) do
+    coverage = merge_coverage(f1.coverage, f2.coverage)
     %{f1 | coverage: coverage}
   end
 
-  defp consolidate_coverage(c1, c2) do
-    Enum.zip_with([c1, c2], &consolidate_line_coverage/1)
+  defp merge_coverage(c1, c2) do
+    Enum.zip_with([c1, c2], &merge_line_coverage/1)
   end
 
-  defp consolidate_line_coverage([nil, nil]) do
+  defp merge_line_coverage([nil, nil]) do
     nil
   end
 
-  defp consolidate_line_coverage([nil, int]) when is_integer(int) do
+  defp merge_line_coverage([nil, int]) when is_integer(int) do
     int
   end
 
-  defp consolidate_line_coverage([int, nil]) when is_integer(int) do
+  defp merge_line_coverage([int, nil]) when is_integer(int) do
     int
   end
 end
