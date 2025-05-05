@@ -11,7 +11,7 @@ defmodule OpentelemetryTesting.MixProject do
       start_permanent: Mix.env() == :prod,
       test_coverage: [
         export: "ex_unit",
-        ignore_modules: [SpanTreeGenerator, SpanTreeBuilder, Mix.Tasks.Codecov]
+        ignore_modules: [SpanTreeGenerator, SpanTreeBuilder]
       ],
       elixirc_paths: elixirc_paths(Mix.env()),
       erlc_options: erlc_options(Mix.env()),
@@ -37,7 +37,7 @@ defmodule OpentelemetryTesting.MixProject do
 
     [
       {:stream_data, "~> 1.2", only: :test},
-      {:jason, "~> 1.4"},
+      {:mix_codecov, "~> 0.1.0"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
       | rebar_deps
     ]
