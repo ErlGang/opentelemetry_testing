@@ -339,7 +339,7 @@ not_a_match_function() -> false.
 assert_positive_match(Value, Pattern, Config) ->
     Data = maybe_nested_data(Value, Config),
     NestedPattern = maybe_nested_pattern(Pattern, Config),
-    ?assertEqual(true, span_matcher:match(Data, NestedPattern)).
+    ?assertEqual({true, #{}}, span_matcher:match(Data, NestedPattern)).
 
 
 assert_negative_match(Value, Pattern, FailureStack, Config)

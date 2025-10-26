@@ -20,11 +20,14 @@
                          term() => term()
                         }.
 -type failure_stack() :: [failure_map()].
--type match_result() :: true | {false, failure_stack()}.
+-type matched_values() :: map().
+-type match_result() :: {true, matched_values()} | {false, failure_stack()}.
+-type simple_match_result() :: true | {false, failure_stack()}.
 -type fn_pattern() :: fun((value()) -> boolean()).
 
 -export_type([failure_map/0,
               failure_stack/0,
+              matched_values/0,
               match_result/0,
               value/0,
               pattern/0,
@@ -78,7 +81,11 @@
 %%
 %% @end
 -spec match(value(), pattern()) -> match_result().
-match(Term, Pattern) -> ?MATCH_VALUE(Term, Pattern).
+match(Term, Pattern) ->
+    case ?MATCH_VALUE(Term, Pattern) of
+        true -> {true, get_matched_values()};
+        {false, Error} -> {false, Error}
+    end.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -86,12 +93,18 @@ match(Term, Pattern) -> ?MATCH_VALUE(Term, Pattern).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
+-spec get_matched_values() -> matched_values().
+get_matched_values() ->
+    %%TODO: add implementation.
+    #{}.
+
+
 -spec failure_map(map(), atom()) -> failure_map().
 failure_map(Map, Matcher) ->
     Map#{matcher => Matcher, reason => match_failed}.
 
 
--spec match_value(value(), pattern()) -> match_result().
+-spec match_value(value(), pattern()) -> simple_match_result().
 match_value(_Value, '_') ->
     true;
 match_value(Value, FnPattern) when is_function(FnPattern, 1) ->
@@ -106,7 +119,7 @@ match_value(Value, Pattern) ->
     match_equal(Value, Pattern).
 
 
--spec match_function(value(), fn_pattern()) -> match_result().
+-spec match_function(value(), fn_pattern()) -> simple_match_result().
 match_function(Value, FnPattern) ->
     try FnPattern(Value) of
         true -> true;
@@ -121,7 +134,7 @@ match_function(Value, FnPattern) ->
     end.
 
 
--spec match_map(value(), map()) -> match_result().
+-spec match_map(value(), map()) -> simple_match_result().
 match_map(Value, MapPattern) when is_map(Value) =/= true ->
     FailureMap = ?FAILED_MATCH(Value, MapPattern),
     {false, [FailureMap#{reason => not_a_map}]};
@@ -147,7 +160,7 @@ match_map(Value, MapPattern) ->
     end.
 
 
--spec match_map_key(map(), map(), value(), match_result()) -> match_result().
+-spec match_map_key(map(), map(), value(), simple_match_result()) -> simple_match_result().
 match_map_key(Value, MapPattern, Key, true) ->
     KeyValue = maps:get(Key, Value),
     KeyPattern = maps:get(Key, MapPattern),
@@ -162,7 +175,7 @@ match_map_key(_Value, _MapPattern, _Key, Acc) ->
     Acc.
 
 
--spec match_tuple(value(), tuple()) -> match_result().
+-spec match_tuple(value(), tuple()) -> simple_match_result().
 match_tuple(Value, TuplePattern) when is_tuple(Value) =/= true ->
     FailureMap = ?FAILED_MATCH(Value, TuplePattern),
     {false, [FailureMap#{reason => not_a_tuple}]};
@@ -186,8 +199,8 @@ match_tuple(Value, TuplePattern) ->
     end.
 
 
--spec match_tuple_element(tuple(), tuple(), pos_integer(), match_result()) ->
-          match_result().
+-spec match_tuple_element(tuple(), tuple(), pos_integer(), simple_match_result()) ->
+          simple_match_result().
 match_tuple_element(Value, TuplePattern, Pos, true) ->
     ElementValue = element(Pos, Value),
     PatternValue = element(Pos, TuplePattern),
@@ -202,7 +215,7 @@ match_tuple_element(_Value, _TuplePattern, _Pos, Acc) ->
     Acc.
 
 
--spec match_list(value(), list()) -> match_result().
+-spec match_list(value(), list()) -> simple_match_result().
 match_list(Value, ListPattern) when is_list(Value) =/= true ->
     FailureMap = ?FAILED_MATCH(Value, ListPattern),
     {false, [FailureMap#{reason => not_a_list}]};
@@ -225,7 +238,7 @@ match_list(Value, ListPattern) ->
 
 
 -spec match_list_item(list(), list(), list(), pos_integer(), pos_integer()) ->
-          match_result().
+          simple_match_result().
 match_list_item(_ItemList, PatternList, _FailedMatches, _ItemIndex, PatternIndex)
   when PatternIndex > length(PatternList) ->
     true;
@@ -257,7 +270,7 @@ match_list_item(ItemList, PatternList, FailedMatches, ItemIndex, PatternIndex) -
     end.
 
 
--spec match_equal(value(), pattern()) -> match_result().
+-spec match_equal(value(), pattern()) -> simple_match_result().
 match_equal(Value, Pattern) ->
     case Value == Pattern of
         true -> true;
