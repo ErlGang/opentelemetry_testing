@@ -8,6 +8,9 @@
 
 -define(MATCH_VALUE(Value, Pattern), match_value(Value, Pattern)).
 
+-define(EMPTY_MATCHED_VALUES, #{}).
+-define(MATCHED_VALUES_KEY,   '$$MATCHED_VALUES_KEY$$').
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% type definitions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -17,10 +20,11 @@
 -type failure_map() :: #{
                          matcher := atom(),
                          reason := atom(),
-                         term() => term()
+                         atom() => term()
                         }.
 -type failure_stack() :: [failure_map()].
--type matched_values() :: map().
+-type matched_values() :: #{atom() => term()}.
+-type maybe_matched_values() :: matched_values() | any().
 -type match_result() :: {true, matched_values()} | {false, failure_stack()}.
 -type simple_match_result() :: true | {false, failure_stack()}.
 -type fn_pattern() :: fun((value()) -> boolean()).
@@ -49,12 +53,22 @@
 %% This function can be used for pattern-matching nested spans.
 %% The pattern-matching rules are the following:
 %%   * '_' atom matches anything.
+%%   * Atoms that start with a "$" sign (e.g. '$some_var') match anything,
+%%     the matched value is also stored and returned.
+%%     Note that if such special atom is used twice in the pattern,
+%%     the second appearance results in the overriding of the stored value,
+%%     e.g. {'$some_var', '$some_var'} pattern will match successfully
+%%     {some_term, another_term} term, and the value returned by this
+%%     interface would be {true, #{'$some_var' => another_term}}
+%%     This limitation might be removed in the future.
 %%   * Match function (function with arity 1, fun matcher_fn/1),
-%%     should return a boolean value. but crashing or any non 'true'
+%%     should return a boolean value. But crashing or any non 'true'
 %%     value is treated as a failed matching. If you want to check
-%%     for equality to some function with arity 1, you have to use
-%%     a match function:
-%%       fun(Fn) -> Fn =:= fun some_module:some_function/1 end.
+%%     for equality to some special atom or a function with arity 1,
+%%     you have to use a match function:
+%%       * fun(Fn) -> Fn =:= fun some_module:some_function/1 end.
+%%       * fun(SpecialAtom) -> SpecialAtom =:= '$special_atom' end.
+%%       * fun(SpecialAtom) -> SpecialAtom =:= '_' end.
 %%   * Empty list ([]) matches an empty list only.
 %%   * Non-empty pattern list ([_ | _]) matches any list containing
 %%     elements that match patterns in the list. Patterns in the
@@ -71,19 +85,23 @@
 %%     If you intend to test a string for equality, use the match function
 %%     pattern instead:
 %%       fun(String) -> String =:= "this is test" end.
-%%   * For tuple patterns every element in the tuple is tested
+%%   * For tuple patterns, every element in the tuple is tested
 %%     against the corresponding data element. The size of the pattern
 %%     tuple must be equal to the size of the data tuple.
 %%   * For map patterns, the corresponding data map must have identical
 %%     keys as the pattern map, and the corresponding data values are
 %%     matched against pattern values. An empty map #{} pattern
 %%     matches any map.
+%%   * Any other pattern value is checked for equality to the data value.
 %%
 %% @end
 -spec match(value(), pattern()) -> match_result().
 match(Term, Pattern) ->
-    case ?MATCH_VALUE(Term, Pattern) of
-        true -> {true, get_matched_values()};
+    OldMatchedValues = reset_matched_values(?EMPTY_MATCHED_VALUES),
+    ReturnValue = ?MATCH_VALUE(Term, Pattern),
+    MatchedValues = reset_matched_values(OldMatchedValues),
+    case ReturnValue of
+        true -> {true, MatchedValues};
         {false, Error} -> {false, Error}
     end.
 
@@ -95,8 +113,19 @@ match(Term, Pattern) ->
 
 -spec get_matched_values() -> matched_values().
 get_matched_values() ->
-    %%TODO: add implementation.
-    #{}.
+    #{} = erlang:get(?MATCHED_VALUES_KEY).
+
+
+-spec reset_matched_values(maybe_matched_values()) -> maybe_matched_values().
+reset_matched_values(NewValue) ->
+    erlang:put(?MATCHED_VALUES_KEY, NewValue).
+
+
+-spec store_matched_value(atom(), any()) -> ok.
+store_matched_value(Key, Value) ->
+    MatchedValues = get_matched_values(),
+    reset_matched_values(MatchedValues#{Key => Value}),
+    ok.
 
 
 -spec failure_map(map(), atom()) -> failure_map().
@@ -105,8 +134,8 @@ failure_map(Map, Matcher) ->
 
 
 -spec match_value(value(), pattern()) -> simple_match_result().
-match_value(_Value, '_') ->
-    true;
+match_value(Value, AtomPattern) when is_atom(AtomPattern) ->
+    match_atom(Value, AtomPattern);
 match_value(Value, FnPattern) when is_function(FnPattern, 1) ->
     match_function(Value, FnPattern);
 match_value(Value, MapPattern) when is_map(MapPattern) ->
@@ -117,6 +146,17 @@ match_value(Value, ListPattern) when is_list(ListPattern) ->
     match_list(Value, ListPattern);
 match_value(Value, Pattern) ->
     match_equal(Value, Pattern).
+
+
+-spec match_atom(value(), atom()) -> simple_match_result().
+match_atom(_Value, '_') -> true;
+match_atom(Value, AtomPattern) ->
+    case erlang:atom_to_list(AtomPattern) of
+        [$$ | _] ->
+            store_matched_value(AtomPattern, Value),
+            true;
+        _ -> match_equal(Value, AtomPattern)
+    end.
 
 
 -spec match_function(value(), fn_pattern()) -> simple_match_result().
@@ -155,7 +195,6 @@ match_map(Value, MapPattern) ->
             end;
         MissingKeys ->
             FailureMap = ?FAILED_MATCH(Value, MapPattern),
-
             {false, [FailureMap#{reason => missing_keys, missing_keys => MissingKeys}]}
     end.
 
