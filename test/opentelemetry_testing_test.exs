@@ -71,7 +71,7 @@ defmodule OpentelemetryTestingTest do
     assert {:ok, {%{trace_id: trace_id, span_id: span_id}, _} = span_tree} =
              OpentelemetryTesting.build_span_tree(trace_id, span_id)
 
-    OpentelemetryTesting.match!(span_tree, span_tree_pattern)
+    %{} = OpentelemetryTesting.match!(span_tree, span_tree_pattern)
 
     assert span_tree == OpentelemetryTesting.build_span_tree!(trace_id, span_id)
   end
@@ -101,14 +101,14 @@ defmodule OpentelemetryTestingTest do
 
     ## we have 1 span with this span name
     span_list1 = OpentelemetryTesting.get_spans_by_name(span_name)
-    OpentelemetryTesting.match!(span_list1, [span_pattern1])
+    %{} = OpentelemetryTesting.match!(span_list1, [span_pattern1])
 
     {span_pattern2, []} = SpanTreeBuilder.generate_span_tree(span_tree_input_data, & &1)
     OpentelemetryTesting.wait_for_span!(:_, span_pattern2.span_id, 300)
 
     ## we have 2 spans with this span name
     span_list2 = OpentelemetryTesting.get_spans_by_name(span_name)
-    OpentelemetryTesting.match!(span_list2, [span_pattern1, span_pattern2])
+    %{} = OpentelemetryTesting.match!(span_list2, [span_pattern1, span_pattern2])
   end
 
   test "OpentelemetryTesting.match/1 fails with failure_stack reporting" do

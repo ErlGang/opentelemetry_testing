@@ -8,6 +8,9 @@
 
 -define(MATCH_VALUE(Value, Pattern), match_value(Value, Pattern)).
 
+-define(EMPTY_MATCHED_VALUES, #{}).
+-define(MATCHED_VALUES_KEY,   '$$MATCHED_VALUES_KEY$$').
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% type definitions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -17,14 +20,18 @@
 -type failure_map() :: #{
                          matcher := atom(),
                          reason := atom(),
-                         term() => term()
+                         atom() => term()
                         }.
 -type failure_stack() :: [failure_map()].
--type match_result() :: true | {false, failure_stack()}.
+-type matched_values() :: #{atom() => term()}.
+-type maybe_matched_values() :: matched_values() | any().
+-type match_result() :: {true, matched_values()} | {false, failure_stack()}.
+-type simple_match_result() :: true | {false, failure_stack()}.
 -type fn_pattern() :: fun((value()) -> boolean()).
 
 -export_type([failure_map/0,
               failure_stack/0,
+              matched_values/0,
               match_result/0,
               value/0,
               pattern/0,
@@ -40,45 +47,60 @@
 %% API implementation
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-
-%% @doc
-%%
-%% This function can be used for pattern-matching nested spans.
-%% The pattern-matching rules are the following:
-%%   * '_' atom matches anything.
-%%   * Match function (function with arity 1, fun matcher_fn/1),
-%%     should return a boolean value. but crashing or any non 'true'
-%%     value is treated as a failed matching. If you want to check
-%%     for equality to some function with arity 1, you have to use
-%%     a match function:
-%%       fun(Fn) -> Fn =:= fun some_module:some_function/1 end.
-%%   * Empty list ([]) matches an empty list only.
-%%   * Non-empty pattern list ([_ | _]) matches any list containing
-%%     elements that match patterns in the list. Patterns in the
-%%     list are checked one by one against every item in the data
-%%     list until the first match is found. Matched data elements
-%%     are not tested against subsequent patterns. The length of
-%%     the pattern list doesn't have to be the same as the length of
-%%     the data list, e.g. ['_'] pattern matches any non-empty list.
-%%     Less restrictive patterns should be placed at the end of the list,
-%%     e.g. the pattern ['_', a] will not match the list [a, b], while
-%%     the pattern [a, '_'] will match.
-%%   * Note that Erlang strings are technically lists, so the pattern
-%%     "this is a test" will successfully match the data "is this a test?".
-%%     If you intend to test a string for equality, use the match function
-%%     pattern instead:
-%%       fun(String) -> String =:= "this is test" end.
-%%   * For tuple patterns every element in the tuple is tested
-%%     against the corresponding data element. The size of the pattern
-%%     tuple must be equal to the size of the data tuple.
-%%   * For map patterns, the corresponding data map must have identical
-%%     keys as the pattern map, and the corresponding data values are
-%%     matched against pattern values. An empty map #{} pattern
-%%     matches any map.
-%%
-%% @end
+-doc "
+This function can be used for pattern-matching nested spans.
+The pattern-matching rules are the following:
+  * `'_'` atom matches anything.
+  * Atoms that start with a `$` sign (e.g. `'$some_var'`) match anything,
+    the matched value is also stored and returned.
+    Note that if such special atom is used twice in the pattern,
+    the second appearance results in the overriding of the stored value,
+    e.g. `{'$some_var', '$some_var'}` pattern will match successfully
+    `{some_term, another_term}` term, and the value returned by this
+    interface would be `{true, #{'$some_var' => another_term}}`.
+    This limitation might be removed in the future.
+  * Match function (function with arity 1, `fun matcher_fn/1`),
+    should return a boolean value. But crashing or any non `true`
+    value is treated as a failed matching. If you want to check
+    for equality to some special atom or a function with arity 1,
+    you have to use a match function:
+      * `fun(Fn) -> Fn =:= fun some_module:some_function/1 end`.
+      * `fun(SpecialAtom) -> SpecialAtom =:= '$special_atom' end`.
+      * `fun(SpecialAtom) -> SpecialAtom =:= '_' end`.
+  * Empty list (`[]`) matches an empty list only.
+  * Non-empty pattern list (`[_ | _]`) matches any list containing
+    elements that match patterns in the list. Patterns in the
+    list are checked one by one against every item in the data
+    list until the first match is found. Matched data elements
+    are not tested against subsequent patterns. The length of
+    the pattern list doesn't have to be the same as the length of
+    the data list, e.g. `['_']` pattern matches any non-empty list.
+    Less restrictive patterns should be placed at the end of the list,
+    e.g. the pattern `['_', a]` will not match the list `[a, b]`, while
+    the pattern `[a, '_']` will match.
+  * Note that Erlang strings are technically lists, so the pattern
+    `\"this is a test\"` will successfully match the data `\"is this a test?\"`.
+    If you intend to test a string for equality, use the match function
+    pattern instead:
+      `fun(String) -> String =:= \"this is test\" end`.
+  * For tuple patterns, every element in the tuple is tested
+    against the corresponding data element. The size of the pattern
+    tuple must be equal to the size of the data tuple.
+  * For map patterns, the corresponding data map must have identical
+    keys as the pattern map, and the corresponding data values are
+    matched against pattern values. An empty map `#{}` pattern
+    matches any map.
+  * Any other pattern value is checked for equality to the data value.
+".
 -spec match(value(), pattern()) -> match_result().
-match(Term, Pattern) -> ?MATCH_VALUE(Term, Pattern).
+match(Term, Pattern) ->
+    OldMatchedValues = reset_matched_values(?EMPTY_MATCHED_VALUES),
+    ReturnValue = ?MATCH_VALUE(Term, Pattern),
+    MatchedValues = reset_matched_values(OldMatchedValues),
+    case ReturnValue of
+        true -> {true, MatchedValues};
+        {false, Error} -> {false, Error}
+    end.
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -86,14 +108,31 @@ match(Term, Pattern) -> ?MATCH_VALUE(Term, Pattern).
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
+-spec get_matched_values() -> matched_values().
+get_matched_values() ->
+    #{} = erlang:get(?MATCHED_VALUES_KEY).
+
+
+-spec reset_matched_values(maybe_matched_values()) -> maybe_matched_values().
+reset_matched_values(NewValue) ->
+    erlang:put(?MATCHED_VALUES_KEY, NewValue).
+
+
+-spec store_matched_value(atom(), any()) -> ok.
+store_matched_value(Key, Value) ->
+    MatchedValues = get_matched_values(),
+    reset_matched_values(MatchedValues#{Key => Value}),
+    ok.
+
+
 -spec failure_map(map(), atom()) -> failure_map().
 failure_map(Map, Matcher) ->
     Map#{matcher => Matcher, reason => match_failed}.
 
 
--spec match_value(value(), pattern()) -> match_result().
-match_value(_Value, '_') ->
-    true;
+-spec match_value(value(), pattern()) -> simple_match_result().
+match_value(Value, AtomPattern) when is_atom(AtomPattern) ->
+    match_atom(Value, AtomPattern);
 match_value(Value, FnPattern) when is_function(FnPattern, 1) ->
     match_function(Value, FnPattern);
 match_value(Value, MapPattern) when is_map(MapPattern) ->
@@ -106,7 +145,18 @@ match_value(Value, Pattern) ->
     match_equal(Value, Pattern).
 
 
--spec match_function(value(), fn_pattern()) -> match_result().
+-spec match_atom(value(), atom()) -> simple_match_result().
+match_atom(_Value, '_') -> true;
+match_atom(Value, AtomPattern) ->
+    case erlang:atom_to_list(AtomPattern) of
+        [$$ | _] ->
+            store_matched_value(AtomPattern, Value),
+            true;
+        _ -> match_equal(Value, AtomPattern)
+    end.
+
+
+-spec match_function(value(), fn_pattern()) -> simple_match_result().
 match_function(Value, FnPattern) ->
     try FnPattern(Value) of
         true -> true;
@@ -121,7 +171,7 @@ match_function(Value, FnPattern) ->
     end.
 
 
--spec match_map(value(), map()) -> match_result().
+-spec match_map(value(), map()) -> simple_match_result().
 match_map(Value, MapPattern) when is_map(Value) =/= true ->
     FailureMap = ?FAILED_MATCH(Value, MapPattern),
     {false, [FailureMap#{reason => not_a_map}]};
@@ -142,12 +192,11 @@ match_map(Value, MapPattern) ->
             end;
         MissingKeys ->
             FailureMap = ?FAILED_MATCH(Value, MapPattern),
-
             {false, [FailureMap#{reason => missing_keys, missing_keys => MissingKeys}]}
     end.
 
 
--spec match_map_key(map(), map(), value(), match_result()) -> match_result().
+-spec match_map_key(map(), map(), value(), simple_match_result()) -> simple_match_result().
 match_map_key(Value, MapPattern, Key, true) ->
     KeyValue = maps:get(Key, Value),
     KeyPattern = maps:get(Key, MapPattern),
@@ -162,7 +211,7 @@ match_map_key(_Value, _MapPattern, _Key, Acc) ->
     Acc.
 
 
--spec match_tuple(value(), tuple()) -> match_result().
+-spec match_tuple(value(), tuple()) -> simple_match_result().
 match_tuple(Value, TuplePattern) when is_tuple(Value) =/= true ->
     FailureMap = ?FAILED_MATCH(Value, TuplePattern),
     {false, [FailureMap#{reason => not_a_tuple}]};
@@ -186,8 +235,8 @@ match_tuple(Value, TuplePattern) ->
     end.
 
 
--spec match_tuple_element(tuple(), tuple(), pos_integer(), match_result()) ->
-          match_result().
+-spec match_tuple_element(tuple(), tuple(), pos_integer(), simple_match_result()) ->
+          simple_match_result().
 match_tuple_element(Value, TuplePattern, Pos, true) ->
     ElementValue = element(Pos, Value),
     PatternValue = element(Pos, TuplePattern),
@@ -202,7 +251,7 @@ match_tuple_element(_Value, _TuplePattern, _Pos, Acc) ->
     Acc.
 
 
--spec match_list(value(), list()) -> match_result().
+-spec match_list(value(), list()) -> simple_match_result().
 match_list(Value, ListPattern) when is_list(Value) =/= true ->
     FailureMap = ?FAILED_MATCH(Value, ListPattern),
     {false, [FailureMap#{reason => not_a_list}]};
@@ -225,7 +274,7 @@ match_list(Value, ListPattern) ->
 
 
 -spec match_list_item(list(), list(), list(), pos_integer(), pos_integer()) ->
-          match_result().
+          simple_match_result().
 match_list_item(_ItemList, PatternList, _FailedMatches, _ItemIndex, PatternIndex)
   when PatternIndex > length(PatternList) ->
     true;
@@ -257,7 +306,7 @@ match_list_item(ItemList, PatternList, FailedMatches, ItemIndex, PatternIndex) -
     end.
 
 
--spec match_equal(value(), pattern()) -> match_result().
+-spec match_equal(value(), pattern()) -> simple_match_result().
 match_equal(Value, Pattern) ->
     case Value == Pattern of
         true -> true;

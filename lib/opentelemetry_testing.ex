@@ -83,10 +83,10 @@ defmodule OpentelemetryTesting do
     end
   end
 
-  @spec match!(:span_matcher.value(), :span_matcher.pattern()) :: true
+  @spec match!(:span_matcher.value(), :span_matcher.pattern()) :: :span_matcher.matched_values()
   def match!(value, pattern) do
     case match(value, pattern) do
-      true -> true
+      {true, matched_values} -> matched_values
       {false, error} -> raise_error(error)
     end
   end

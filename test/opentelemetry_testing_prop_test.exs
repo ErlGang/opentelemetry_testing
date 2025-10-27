@@ -17,10 +17,10 @@ defmodule OpentelemetryTestingPropTest do
       for {%{trace_id: trace_id, span_id: span_id} = span_pattern, _} = tree_pattern <-
             tree_patterns do
         assert {:ok, span} = OpentelemetryTesting.wait_for_span(trace_id, span_id, 300)
-        assert true == OpentelemetryTesting.match(span, span_pattern)
+        assert {true, %{}} = OpentelemetryTesting.match(span, span_pattern)
 
         assert {:ok, span_tree} = OpentelemetryTesting.build_span_tree(trace_id, span_id)
-        assert true == OpentelemetryTesting.match(span_tree, tree_pattern)
+        assert {true, %{}} = OpentelemetryTesting.match(span_tree, tree_pattern)
       end
     end
   end

@@ -12,6 +12,7 @@
          end_per_testcase/2]).
 
 -export([match_anything_test/1,
+         match_anything_and_store_test/1,
          %% match_function_tests
          positive_function_match_test/1,
          not_a_matching_function_test/1,
@@ -53,12 +54,17 @@ groups() ->
 
 
 all_test_cases() ->
-    lists:flatten([match_anything_test,
+    lists:flatten([match_anything_tests(),
                    match_function_tests(),
                    match_map_tests(),
                    match_tuple_tests(),
                    match_list_tests(),
                    match_equal_tests()]).
+
+
+match_anything_tests() ->
+    [match_anything_test,
+     match_anything_and_store_test].
 
 
 match_function_tests() ->
@@ -129,6 +135,39 @@ match_anything_test(Config) ->
     assert_positive_match(#{123 => 321}, '_', Config),
     assert_positive_match(<<"123">>, '_', Config),
     assert_positive_match(make_ref(), '_', Config).
+
+
+match_anything_and_store_test(Config) ->
+    %% single stored value
+    assert_positive_match(123, '$some_value', Config, #{'$some_value' => 123}),
+    assert_positive_match([123], '$some_value', Config, #{'$some_value' => [123]}),
+    assert_positive_match({123}, '$some_value', Config, #{'$some_value' => {123}}),
+    assert_positive_match(#{123 => 321}, '$some_value', Config, #{'$some_value' => #{123 => 321}}),
+    assert_positive_match(<<"123">>, '$some_value', Config, #{'$some_value' => <<"123">>}),
+    Ref = make_ref(),
+    assert_positive_match(Ref, '$some_value', Config, #{'$some_value' => Ref}),
+    %% multiple stored values
+    assert_positive_match([123, 456],
+                          ['$some_value', '$another_value'],
+                          Config,
+                          #{'$some_value' => 123, '$another_value' => 456}),
+    assert_positive_match({123, 456},
+                          {'$some_value', '$another_value'},
+                          Config,
+                          #{'$some_value' => 123, '$another_value' => 456}),
+    assert_positive_match(#{123 => 321, 456 => 654},
+                          #{123 => '$some_value', 456 => '$another_value'},
+                          Config,
+                          #{'$some_value' => 321, '$another_value' => 654}),
+    assert_positive_match([{#{123 => 321}, 456}, 789],
+                          [{#{123 => '$some_value'}, '$another_value'}, '$yet_another_value'],
+                          Config,
+                          #{'$some_value' => 321, '$another_value' => 456, '$yet_another_value' => 789}),
+    %% value overriding
+    assert_positive_match([{#{123 => 321}, 456}, 789],
+                          [{#{123 => '$some_value'}, '$some_value'}, '$some_value'],
+                          Config,
+                          #{'$some_value' => 789}).
 
 
 positive_function_match_test(Config) ->
@@ -337,9 +376,13 @@ not_a_match_function() -> false.
 
 
 assert_positive_match(Value, Pattern, Config) ->
+    assert_positive_match(Value, Pattern, Config, #{}).
+
+
+assert_positive_match(Value, Pattern, Config, MatchedValues) ->
     Data = maybe_nested_data(Value, Config),
     NestedPattern = maybe_nested_pattern(Pattern, Config),
-    ?assertEqual(true, span_matcher:match(Data, NestedPattern)).
+    ?assertEqual({true, MatchedValues}, span_matcher:match(Data, NestedPattern)).
 
 
 assert_negative_match(Value, Pattern, FailureStack, Config)
@@ -414,6 +457,8 @@ maybe_nested_data(Data, Config) ->
                some_key => some_value,
                another_key => [another_value, {}, {yet_another_value, Data}]
               },
+             #{yet_another_key => Data},
+             [1, Data, 3],
              []}
     end.
 
@@ -421,7 +466,11 @@ maybe_nested_data(Data, Config) ->
 maybe_nested_pattern(Pattern, Config) ->
     case proplists:get_value(group, Config) of
         basic -> Pattern;
-        nested -> {'_', #{another_key => [{yet_another_value, Pattern}]}, '_'}
+        nested ->
+            {'_', #{another_key => [{yet_another_value, Pattern}]},
+                  #{yet_another_key => Pattern},
+                  ['_', 3, Pattern],
+                  '_'}
     end.
 
 
@@ -438,8 +487,13 @@ maybe_nested_failure(FailureStack, Value, Pattern, Config) ->
                                some_key => some_value,
                                another_key => [another_value, {}, {yet_another_value, Value}]
                               },
+                             #{yet_another_key => Value},
+                             [1, Value, 3],
                              []},
-                   pattern => {'_', #{another_key => [{yet_another_value, Pattern}]}, '_'},
+                   pattern => {'_', #{another_key => [{yet_another_value, Pattern}]},
+                                    #{yet_another_key => Pattern},
+                                    ['_', 3, Pattern],
+                                    '_'},
                    matcher => match_tuple
                   },
                  #{

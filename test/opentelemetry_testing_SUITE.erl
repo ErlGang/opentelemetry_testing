@@ -98,7 +98,7 @@ wait_for_span_test(_Config) ->
     {ok, Span} = Ret,
 
     %% ensure that span is converted by opentelemetry_testing:wait_for_span/3
-    ?assert(opentelemetry_testing:match(Span, SpanPattern)),
+    ?assertMatch({true, #{}}, opentelemetry_testing:match(Span, SpanPattern)),
 
     %% ensure that opentelemetry_testing:wait_for_span/3 returns immediately
     %% if Span is already reported
@@ -140,7 +140,7 @@ get_spans_by_name_test(_Config) ->
                  opentelemetry_testing:get_span_ids_by_name(Name)),
     Spans1 = opentelemetry_testing:get_spans_by_name(Name),
     %% ensure that spans are converted by opentelemetry_testing:get_spans_by_name/1
-    ?assert(opentelemetry_testing:match(Spans1, [SpanPattern1])),
+    ?assertMatch({true, #{}}, opentelemetry_testing:match(Spans1, [SpanPattern1])),
 
     {#{name := Name, trace_id := TraceId2, span_id := SpanId2} = SpanPattern2, []} =
         generate_span_tree(SpanTreeInputData),
@@ -150,7 +150,7 @@ get_spans_by_name_test(_Config) ->
                  opentelemetry_testing:get_span_ids_by_name(Name)),
     Spans2 = opentelemetry_testing:get_spans_by_name(Name),
     %% ensure that spans are converted by opentelemetry_testing:get_spans_by_name/1
-    ?assert(opentelemetry_testing:match(Spans2, [SpanPattern1, SpanPattern2])),
+    ?assertMatch({true, #{}}, opentelemetry_testing:match(Spans2, [SpanPattern1, SpanPattern2])),
 
     opentelemetry_testing:reset(),
     ?assertEqual({error, not_found},
@@ -170,7 +170,7 @@ build_span_tree_test(_Config) ->
     {ok, SpanTree} = Ret,
 
     %% ensure that span tree is converted by opentelemetry_testing:build_span_tree/2
-    ?assert(opentelemetry_testing:match(SpanTree, SpanTreePattern)),
+    ?assertMatch({true, #{}}, opentelemetry_testing:match(SpanTree, SpanTreePattern)),
 
     %% ensure that opentelemetry_testing:build_span_tree/2 returns the same tree
     %% if called twice
@@ -258,7 +258,7 @@ build_span_tree_property(SpanTreesInputData) ->
             opentelemetry_testing:wait_for_span(TraceId, RootSpanId, 500)),
           {ok, SpanTree} =
               opentelemetry_testing:build_span_tree(TraceId, RootSpanId),
-          ?assert(opentelemetry_testing:match(SpanTree, Pattern))
+          ?assertMatch({true, #{}}, opentelemetry_testing:match(SpanTree, Pattern))
       end || Pattern <- TreePatterns ],
     true.
 
