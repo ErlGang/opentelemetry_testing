@@ -22,6 +22,9 @@ opentelemetry_testing-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 
+# Elixir Language Server
+.elixir_ls/
+
 # default rebar3 .gitignore content
 .rebar3
 _build.rebar
