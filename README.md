@@ -39,17 +39,17 @@ and `opentelemetry_testing` module for Erlang projects.
   * or call `ensure_started/0` at the `SuiteModule:init_per_suite/1`
     interface for Common Test. Since CT doesn't run multiple suites
     in parallel, you may also want to reset `span_collector` ETS table
-    using `reset/0` interface.
+    using the `reset/0` interface.
 
 2) If possible, wrap your test scenario in a dummy root span.
   * Use `OpenTelemetry.Tracer.with_span/2` macro for Elixir projects
   * or `?with_span/3` macro from `otel_tracer.hrl` for Erlang projects.
-  * Extract root span's `trace_id` and `span_id` (you can use
+  * Extract the root span's `trace_id` and `span_id` (you can use the
     `OpentelemetryTesting.get_span_ids/0` helper function for Elixir projects).
 
 3) Wait for the root span to be reported and build the span tree for it.
-  * Use `wait_for_span/3` and `build_span_tree/2` functions for this.
-  * Span tree is a recursive tuple structure with two elements:
+  * Use the `wait_for_span/3` and `build_span_tree/2` functions for this.
+  * A span tree is a recursive tuple structure with two elements:
     * The first element of the tuple is the span map.
     * The second element is a list of span trees (child spans).
 
@@ -62,7 +62,7 @@ test "demo test case" do
       OpentelemetryTesting.get_span_ids()
     end
   ## wait for the root span to be reported.
-  timeout_ms = 1000
+  timeout_ms = 300
   %{trace_id: trace_id, span_id: span_id, name: "dummy root span"} =
     OpentelemetryTesting.wait_for_span!(trace_id, span_id, timeout_ms)
   ## build a span tree structure for the root span.
@@ -97,35 +97,35 @@ demo_test(_Config) ->
   * Create a span tree pattern with all the expected span attributes,
     links, events, etc.
   * For more information on pattern-matching rules, see the section below.
-  * Use `match/2` function for verification of the span tree.
+  * Use the `match/2` function for verification of the span tree.
 
 ## Pattern-matching rules
 
-`match/2` interface can be used for verification of the span tree.
+The `match/2` interface can be used to verify the span tree.
 
 The pattern-matching rules are the following:
   * `'_'` atom matches anything.
   * Atoms that start with a `$` sign (e.g. `'$some_var'`) match anything,
     the matched value is also stored and returned.
-    Note that if such special atom is used twice in the pattern,
+    Note that if such a special atom is used twice in the pattern,
     the second appearance results in the overriding of the stored value,
     e.g. `{'$some_var', '$some_var'}` pattern will match successfully
     `{some_term, another_term}` term, and the value returned by this
     interface would be `{true, #{'$some_var' => another_term}}`.
     This limitation might be removed in the future.
-  * Match function (function with arity 1, `fun matcher_fn/1`),
-    should return a boolean value. But crashing or any non `true`
+  * A match function (a function with arity 1, `fun matcher_fn/1`),
+    should return a boolean value. However, crashing or any non-true
     value is treated as a failed matching. If you want to check
-    for equality to some special atom or a function with arity 1,
+    for equality against some special atom or a function with arity 1,
     you have to use a match function:
       * `fun(Fn) -> Fn =:= fun some_module:some_function/1 end`.
       * `fun(SpecialAtom) -> SpecialAtom =:= '$special_atom' end`.
       * `fun(SpecialAtom) -> SpecialAtom =:= '_' end`.
   * Empty list (`[]`) matches an empty list only.
-  * Non-empty pattern list (`[_ | _]`) matches any list containing
-    elements that match patterns in the list. Patterns in the
-    list are checked one by one against every item in the data
-    list until the first match is found. Matched data elements
+  * Non-empty pattern list (`[_ | _]`) matches any list where all patterns
+    in the pattern list have at least one matching element in the data list.
+    Patterns in the list are checked one by one against every item in
+    the data list until the first match is found. Matched data elements
     are not tested against subsequent patterns. The length of
     the pattern list doesn't have to be the same as the length of
     the data list, e.g. `['_']` pattern matches any non-empty list.
@@ -141,7 +141,7 @@ The pattern-matching rules are the following:
     against the corresponding data element. The size of the pattern
     tuple must be equal to the size of the data tuple.
   * For map patterns, the corresponding data map must have identical
-    keys as the pattern map, and the corresponding data values are
+    keys to the pattern map, and the corresponding data values are
     matched against pattern values. An empty map `#{}` pattern
     matches any map.
-  * Any other pattern value is checked for equality to the data value.
+  * Any other pattern value is checked for equality with the data value.
