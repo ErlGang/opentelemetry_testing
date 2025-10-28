@@ -79,4 +79,52 @@ demo_test(_Config) ->
 4) Validate the span tree by matching it against the pattern.
   * Create a span tree template with all the expected span attributes,
     links, events, etc.
-  * Use `match/2` function for verification of the span tree.
+  * Use `match/2` function for verification of the span tree (see section below
+    for more details).
+
+## `span_matcher` functionality
+
+`match/2` interface can be used for pattern-matching nested spans.
+
+The pattern-matching rules are the following:
+  * `'_'` atom matches anything.
+  * Atoms that start with a `$` sign (e.g. `'$some_var'`) match anything,
+    the matched value is also stored and returned.
+    Note that if such special atom is used twice in the pattern,
+    the second appearance results in the overriding of the stored value,
+    e.g. `{'$some_var', '$some_var'}` pattern will match successfully
+    `{some_term, another_term}` term, and the value returned by this
+    interface would be `{true, #{'$some_var' => another_term}}`.
+    This limitation might be removed in the future.
+  * Match function (function with arity 1, `fun matcher_fn/1`),
+    should return a boolean value. But crashing or any non `true`
+    value is treated as a failed matching. If you want to check
+    for equality to some special atom or a function with arity 1,
+    you have to use a match function:
+      * `fun(Fn) -> Fn =:= fun some_module:some_function/1 end`.
+      * `fun(SpecialAtom) -> SpecialAtom =:= '$special_atom' end`.
+      * `fun(SpecialAtom) -> SpecialAtom =:= '_' end`.
+  * Empty list (`[]`) matches an empty list only.
+  * Non-empty pattern list (`[_ | _]`) matches any list containing
+    elements that match patterns in the list. Patterns in the
+    list are checked one by one against every item in the data
+    list until the first match is found. Matched data elements
+    are not tested against subsequent patterns. The length of
+    the pattern list doesn't have to be the same as the length of
+    the data list, e.g. `['_']` pattern matches any non-empty list.
+    Less restrictive patterns should be placed at the end of the list,
+    e.g. the pattern `['_', a]` will not match the list `[a, b]`, while
+    the pattern `[a, '_']` will match.
+  * Note that Erlang strings are technically lists, so the pattern
+    `"this is a test"` will successfully match the data `"is this a test?"`.
+    If you intend to test a string for equality, use the match function
+    pattern instead:
+      * `fun(String) -> String =:= "this is test" end`.
+  * For tuple patterns, every element in the tuple is tested
+    against the corresponding data element. The size of the pattern
+    tuple must be equal to the size of the data tuple.
+  * For map patterns, the corresponding data map must have identical
+    keys as the pattern map, and the corresponding data values are
+    matched against pattern values. An empty map `#{}` pattern
+    matches any map.
+  * Any other pattern value is checked for equality to the data value.

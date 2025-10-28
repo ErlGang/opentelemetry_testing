@@ -83,7 +83,7 @@ The pattern-matching rules are the following:
     `\"this is a test\"` will successfully match the data `\"is this a test?\"`.
     If you intend to test a string for equality, use the match function
     pattern instead:
-      `fun(String) -> String =:= \"this is test\" end`.
+      * `fun(String) -> String =:= \"this is test\" end`.
   * For tuple patterns, every element in the tuple is tested
     against the corresponding data element. The size of the pattern
     tuple must be equal to the size of the data tuple.
