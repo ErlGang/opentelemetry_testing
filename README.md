@@ -12,6 +12,10 @@ This application provides a toolset for testing `OpenTelemetry` spans reporting.
  * `span_convertor` - this module provides interfaces for converting span records into maps.
  * `span_matcher` - can be used for pattern-matching data structures, incl. span tree-like structures.
 
+## TL;DR
+
+For usage example, see [test/demo_SUITE.erl](https://github.com/ErlGang/opentelemetry_testing/blob/main/test/demo_SUITE.erl) or [test/demo_test.exs](https://github.com/ErlGang/opentelemetry_testing/blob/main/test/demo_test.exs)
+
 ## How to use it
 
 Use interfaces from `OpentelemetryTesting` module for Elixir projects
