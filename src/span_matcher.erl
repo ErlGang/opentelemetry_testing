@@ -47,6 +47,7 @@
 %% API implementation
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+
 -doc "
 This function can be used for pattern-matching nested spans.
 The pattern-matching rules are the following:
