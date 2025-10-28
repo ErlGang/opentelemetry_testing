@@ -5,7 +5,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("test_logs/include/test_logs.hrl").
 
-%% otel_tracer.hrl defines tracing marcos (e.g. ?with_span())
+%% otel_tracer.hrl defines tracing macros (e.g. ?with_span())
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
 %% opentelemetry.hrl contains #span_ctx{} record declaration
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
